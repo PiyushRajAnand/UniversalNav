@@ -1,0 +1,22 @@
+/* Glassmorphic Backdrop and Overlay Modals */
+.style-glass-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(9, 13, 22, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.style-modal-container {
+  width: 100%;
+  max-width: 540px;
+  border: 1px solid var(--border-glass);
+}
+

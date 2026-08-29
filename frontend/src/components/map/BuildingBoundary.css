@@ -1,0 +1,453 @@
+.universalnav-boundary-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 30;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.universalnav-boundary-overlay.editing {
+  pointer-events: auto;
+}
+
+.universalnav-boundary-shape {
+  fill: rgba(14, 165, 233, 0.055);
+  stroke: #22d3ee;
+  stroke-width: 4;
+  stroke-dasharray: 14 8;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.45));
+}
+
+.universalnav-boundary-shape.interactive {
+  pointer-events: none;
+}
+
+.universalnav-boundary-handle {
+  fill: #0ea5e9;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: grab;
+  vector-effect: non-scaling-stroke;
+  pointer-events: auto;
+}
+
+.universalnav-boundary-handle:active {
+  cursor: grabbing;
+}
+
+.universalnav-boundary-draft {
+  fill: none;
+  stroke: #facc15;
+  stroke-width: 4;
+  stroke-dasharray: 8 6;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.universalnav-boundary-start {
+  fill: #facc15;
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.universalnav-boundary-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 300px;
+  z-index: 100;
+  padding: 14px;
+  border: 1px solid rgba(34, 211, 238, 0.75);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+  color: #e5e7eb;
+  backdrop-filter: blur(8px);
+}
+
+.universalnav-boundary-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  color: #67e8f9;
+  margin-bottom: 4px;
+}
+
+.universalnav-boundary-title button {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.universalnav-boundary-floor {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+
+.universalnav-boundary-floor strong {
+  color: #f8fafc;
+}
+
+.universalnav-boundary-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.universalnav-boundary-modes button,
+.universalnav-boundary-actions button {
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.universalnav-boundary-modes button:hover,
+.universalnav-boundary-modes button.active {
+  border-color: #22d3ee;
+  background: rgba(8, 145, 178, 0.35);
+  color: #cffafe;
+}
+
+.universalnav-boundary-help {
+  margin-top: 9px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(51, 65, 85, 0.55);
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.universalnav-boundary-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.universalnav-boundary-actions .finish {
+  flex: 1;
+  border-color: #22c55e;
+  background: #166534;
+  color: #dcfce7;
+}
+
+.universalnav-boundary-actions .reset {
+  flex: 1;
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.universalnav-boundary-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.universalnav-boundary-tip {
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+/* ============================================================
+   FIX: render the boundary controls inside the editor sidebar
+   instead of floating over the map canvas.
+   ============================================================ */
+
+.universalnav-editor-sidebar {
+  position: relative;
+}
+
+.universalnav-boundary-panel-sidebar {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+/* Keep the map overlay responsible only for drawing/editing the
+   boundary. The control card lives in the sidebar. */
+.universalnav-boundary-overlay {
+  pointer-events: none;
+}
+
+.universalnav-boundary-overlay.editing {
+  pointer-events: auto;
+}
+
+/* Make boundary editing handles easy to grab. */
+.universalnav-boundary-handle {
+  r: 9px;
+  cursor: grab;
+}
+
+.universalnav-boundary-handle:hover {
+  filter: drop-shadow(0 0 5px rgba(255,255,255,.8));
+}
+
+/* Small section label used by the improved boundary controls. */
+.universalnav-boundary-section-title {
+  margin: 8px 0 7px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.universalnav-boundary-drawing-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid rgba(250,204,21,.45);
+  border-radius: 8px;
+  background: rgba(250,204,21,.08);
+  color: #fde68a;
+  font-size: 11px;
+}
+
+.universalnav-boundary-finish-inline {
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: #166534;
+  color: #dcfce7;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.universalnav-boundary-finish-inline:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .universalnav-boundary-panel-sidebar {
+    font-size: 12px;
+  }
+
+  .universalnav-boundary-modes {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+
+/* Click-to-connect boundary editor */
+.universalnav-boundary-single-mode {
+  margin-top: 2px;
+}
+
+.universalnav-boundary-draw-button,
+.universalnav-boundary-edit-button {
+  width: 100%;
+  border: 1px solid #22d3ee;
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: #102a43;
+  color: #e0f2fe;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.universalnav-boundary-draw-button:hover,
+.universalnav-boundary-draw-button.active,
+.universalnav-boundary-edit-button:hover:not(:disabled) {
+  background: rgba(8, 145, 178, 0.45);
+  border-color: #67e8f9;
+}
+
+.universalnav-boundary-edit-button {
+  margin-top: 7px;
+  border-color: #64748b;
+  color: #cbd5e1;
+}
+
+.universalnav-boundary-edit-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.universalnav-boundary-close-point {
+  fill: #22c55e;
+  stroke: #fff;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.universalnav-boundary-draft-point {
+  fill: #facc15;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: crosshair;
+}
+
+.universalnav-boundary-drawing-status {
+  align-items: center;
+  gap: 8px;
+}
+
+.universalnav-boundary-finish-inline {
+  margin-left: auto;
+  border: 1px solid #22c55e;
+  border-radius: 7px;
+  padding: 5px 8px;
+  background: #166534;
+  color: #dcfce7;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.universalnav-boundary-finish-inline:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* Responsive top toolbar: never hide the right-side actions on smaller screens. */
+.universalnav-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.universalnav-editor-toolbar > .universalnav-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.universalnav-toolbar-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1200px) {
+  .universalnav-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+    padding-top: 3px;
+    border-top: 1px solid rgba(148,163,184,.2);
+  }
+}
+
+@media (max-width: 800px) {
+  .universalnav-editor-toolbar .btn {
+    font-size: 11px;
+    padding: 5px 7px;
+  }
+}
+/* Node + connection boundary editor */
+.universalnav-boundary-connection {
+  stroke: #22d3ee;
+  stroke-width: 5;
+  stroke-dasharray: 10 7;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  pointer-events: stroke;
+  filter: drop-shadow(0 0 4px rgba(34,211,238,.35));
+}
+
+.universalnav-boundary-connection:hover,
+.universalnav-boundary-connection.selected {
+  stroke: #facc15;
+  stroke-width: 8;
+  stroke-dasharray: none;
+}
+
+.universalnav-boundary-node {
+  fill: #0ea5e9;
+  stroke: #fff;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  pointer-events: auto;
+  filter: drop-shadow(0 0 5px rgba(14,165,233,.7));
+}
+
+.universalnav-boundary-node:hover,
+.universalnav-boundary-node.selected {
+  fill: #22c55e;
+  stroke: #f8fafc;
+  stroke-width: 4;
+}
+
+.universalnav-boundary-node-label {
+  fill: #e0f2fe;
+  font-size: 11px;
+  font-weight: 800;
+  user-select: none;
+}
+
+.universalnav-boundary-stats {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+  font-size: 10px;
+  color: #cbd5e1;
+}
+
+.universalnav-boundary-stats span {
+  flex: 1;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(51,65,85,.55);
+}
+
+.universalnav-boundary-delete-connection,
+.universalnav-boundary-delete-node {
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.universalnav-boundary-delete-connection:not(:disabled) {
+  border-color: #f59e0b;
+  color: #fde68a;
+}
+
+.universalnav-boundary-delete-node:not(:disabled) {
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.universalnav-boundary-delete-connection:disabled,
+.universalnav-boundary-delete-node:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}

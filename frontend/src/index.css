@@ -1,0 +1,63 @@
+@import 'bootstrap/dist/css/bootstrap.min.css';
+
+:root {
+  --bg-gradient-dark: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  --glass-bg-dark: rgba(30, 41, 59, 0.7);
+  --glass-border-dark: rgba(255, 255, 255, 0.1);
+  --text-main-dark: #f8fafc;
+  --accent-blue: #38bdf8;
+  --accent-purple: #a855f7;
+}
+
+/* Base Body Styles */
+body {
+  background: var(--bg-gradient-dark);
+  color: var(--text-main-dark);
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Glassmorphism Panel */
+.glass-panel {
+  background: var(--glass-bg-dark);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border-dark);
+  border-radius: 1rem;
+}
+
+/* Grid Background for Map Editor Canvas */
+.interactive-canvas {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}
+
+/* Custom Scrollbars for Dark Theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Custom Helper Utilities */
+.text-purple {
+  color: var(--accent-purple) !important;
+}
+
+.text-blue {
+  color: var(--accent-blue) !important;
+}
