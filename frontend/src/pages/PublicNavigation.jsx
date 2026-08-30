@@ -44,6 +44,15 @@ import { useParams } from "react-router-dom";
 ====================================================================
 */
 
+// Backend API base URL.
+// Local development keeps the existing localhost backend.
+// In production, set VITE_API_URL in the frontend deployment
+// (for example: https://your-backend.onrender.com).
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "http://localhost:5000" : "")
+).replace(/\/$/, "");
+
 const PIXELS_TO_METERS = 0.1;
 
 const DEFAULT_FLOOR_SIZE = {
@@ -229,8 +238,21 @@ export default function PublicNavigation() {
           buildingId
         );
 
+        if (!API_BASE_URL) {
+          throw new Error(
+            "Backend API URL is not configured. Set VITE_API_URL in the frontend deployment."
+          );
+        }
+
         const response = await fetch(
-          `http://localhost:5000/api/maps/${buildingId}`
+          `${API_BASE_URL}/api/maps/${encodeURIComponent(buildingId)}`,
+          {
+            method: "GET",
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+            },
+          }
         );
 
         const data = await response.json();

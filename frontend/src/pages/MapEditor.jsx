@@ -6310,20 +6310,17 @@ export default function MapEditor() {
 
             <div className="bg-white p-3 rounded d-inline-block mb-3">
               <QRCodeCanvas
-                value={JSON.stringify({
-                  type: 'UniversalNavLocation',
-                  version: 1,
-                  buildingId:
-                    qrModalNode.buildingId,
-                  nodeId:
-                    qrModalNode.nodeId,
-                  floor:
-                    qrModalNode.floor
-                })}
-                size={220}
-                level="H"
-                marginSize={4}
-              />
+  value={`${window.location.origin}/navigate/${encodeURIComponent(
+    qrModalNode.buildingId
+  )}?nodeId=${encodeURIComponent(
+    qrModalNode.nodeId
+  )}&floor=${encodeURIComponent(
+    qrModalNode.floor
+  )}`}
+  size={220}
+  level="H"
+  marginSize={4}
+/>
             </div>
 
             <div className="bg-secondary bg-opacity-25 rounded p-3 mb-3 text-start">

@@ -250,9 +250,9 @@ INDEXES
 ============================================================
 */
 
-mapSchema.index({ userId: 1 });
-mapSchema.index({ owner: 1 });
-mapSchema.index({ buildingId: 1 });
+// mapSchema.index({ userId: 1 });
+// mapSchema.index({ owner: 1 });
+// mapSchema.index({ buildingId: 1 });
 mapSchema.index({ status: 1 });
 mapSchema.index({ isPublic: 1 });
 

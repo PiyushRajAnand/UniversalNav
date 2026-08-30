@@ -131,11 +131,20 @@ export default function Dashboard() {
   };
 
   // Generate public URL for QR
-  const getPublicMapUrl = (map) => {
-    const mapId = getMapId(map);
+// ============================================================
+// PUBLIC NAVIGATION URL
+// ============================================================
+// IMPORTANT:
+// App.jsx exposes PublicNavigation at:
+// /navigate/:buildingId
+//
+// Do NOT use /map/:id here.
+const getPublicMapUrl = (map) => {
+  const mapId = getMapId(map);
+  if (!mapId) return '';
 
-    return `${window.location.origin}/map/${mapId}`;
-  };
+  return `${window.location.origin}/navigate/${encodeURIComponent(mapId)}`;
+};
 
   // Copy public navigation URL
   const handleCopyLink = async () => {
