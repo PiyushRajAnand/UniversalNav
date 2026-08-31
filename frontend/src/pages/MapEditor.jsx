@@ -1362,6 +1362,26 @@ export default function MapEditor() {
   const { buildingId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+
+  /*
+   * AUTHORIZATION NOTE
+   * ------------------
+   * MapEditor does not trust a client-side user/token value to decide
+   * ownership. The API layer sends the authenticated session/credentials,
+   * and the backend `protect` middleware + Map.userId / Map.owner check
+   * is the final authority for loading/saving a map.
+   *
+   * Do not add a localStorage token/user fallback here: that could allow
+   * the editor to display stale private map data when the server returns
+   * 401/403/404.
+   */
+
+  /*
+   * Support both query-string conventions used by older/newer
+   * dashboard links:
+   *   ?isNew=true
+   *   ?new=true
+   */
   const searchParams = new URLSearchParams(location.search);
 
   const isNewMapRequest =
@@ -1399,21 +1419,8 @@ export default function MapEditor() {
   const [historyStep, setHistoryStep] = useState(-1);
 
   const [selectedRoomId, setSelectedRoomId] = useState(null);
-  const [selectedRoomIds, setSelectedRoomIds] = useState([]);
   const [selectedWaypointId, setSelectedWaypointId] = useState(null);
   const [activeTool, setActiveTool] = useState('select');
-
-  // ADDITIVE editor productivity state. Existing single-selection behaviour
-  // remains the default; multi-select is enabled with Shift-click.
-  const [clipboardRooms, setClipboardRooms] = useState([]);
-  const [versionHistory, setVersionHistory] = useState([]);
-  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
-  const [autoSaveState, setAutoSaveState] = useState('saved');
-  const editorLoadedRef = useRef(false);
-  const autoSaveTimerRef = useRef(null);
-  const lastAutoSaveSignatureRef = useRef('');
-  const skipNextAutoSaveRef = useRef(true);
-  const lastVersionAtRef = useRef(0);
   const [connectStartNode, setConnectStartNode] = useState(null);
 
   const [stairModalSource, setStairModalSource] = useState(null);
@@ -1813,7 +1820,6 @@ export default function MapEditor() {
       setWaypoints(nextWaypoints);
       setEdges(nextEdges);
       setSelectedRoomId(null);
-      setSelectedRoomIds([]);
       setContextMenu(null);
 
       recordHistory(nextRooms, nextWaypoints, nextEdges);
@@ -1863,308 +1869,6 @@ export default function MapEditor() {
     ]
   );
 
-  const cloneEditorRooms = useCallback(
-    (items) => JSON.parse(JSON.stringify(items || [])),
-    []
-  );
-
-  const makeEditorId = useCallback((prefix) => {
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  }, []);
-
-  const duplicateSelectedRooms = useCallback(
-    (sourceIds = selectedRoomIds.length ? selectedRoomIds : (selectedRoomId ? [selectedRoomId] : [])) => {
-      const sourceRooms = rooms.filter((r) => sourceIds.includes(r._id));
-      if (!sourceRooms.length) return;
-
-      const selectedWaypoints = waypoints.filter((w) =>
-        sourceRooms.some((r) => r.waypointId === w.id)
-      );
-
-      const wpMap = new Map();
-      const newRooms = sourceRooms.map((room) => {
-        const newRoomId = makeEditorId('room');
-        const newWpId = makeEditorId('wp');
-        wpMap.set(room.waypointId, newWpId);
-
-        return {
-          ...room,
-          _id: newRoomId,
-          name: `${room.name || 'Room'} Copy`,
-          x: (room.x || 0) + 32,
-          y: (room.y || 0) + 32,
-          waypointId: newWpId
-        };
-      });
-
-      const newWaypoints = selectedWaypoints.map((wp) => ({
-        ...wp,
-        id: wpMap.get(wp.id) || makeEditorId('wp'),
-        x: (wp.x || 0) + 32,
-        y: (wp.y || 0) + 32
-      }));
-
-      // Intentionally do not copy edges. A duplicated room should never
-      // accidentally inherit a routing connection to the original graph.
-      const nextRooms = [...rooms, ...newRooms];
-      const nextWaypoints = [...waypoints, ...newWaypoints];
-
-      setRooms(nextRooms);
-      setWaypoints(nextWaypoints);
-      setSelectedRoomIds(newRooms.map((r) => r._id));
-      setSelectedRoomId(newRooms[0]?._id || null);
-      setSelectedWaypointId(null);
-      recordHistory(nextRooms, nextWaypoints, edges);
-    },
-    [
-      rooms,
-      waypoints,
-      edges,
-      selectedRoomIds,
-      selectedRoomId,
-      makeEditorId,
-      recordHistory
-    ]
-  );
-
-  const copySelectedRooms = useCallback(() => {
-    const ids = selectedRoomIds.length
-      ? selectedRoomIds
-      : selectedRoomId
-        ? [selectedRoomId]
-        : [];
-
-    const selected = rooms.filter((r) => ids.includes(r._id));
-    if (!selected.length) return;
-
-    setClipboardRooms(cloneEditorRooms(selected));
-    setSaveMessage({
-      type: 'success',
-      text: `${selected.length} room${selected.length > 1 ? 's' : ''} copied`
-    });
-    setTimeout(() => setSaveMessage(null), 1200);
-  }, [rooms, selectedRoomIds, selectedRoomId, cloneEditorRooms]);
-
-  const pasteCopiedRooms = useCallback(() => {
-    if (!clipboardRooms.length) return;
-
-    const sourceWaypoints = waypoints.filter((w) =>
-      clipboardRooms.some((r) => r.waypointId === w.id)
-    );
-
-    const wpMap = new Map();
-    const newRooms = clipboardRooms.map((room) => {
-      const newRoomId = makeEditorId('room');
-      const newWpId = makeEditorId('wp');
-      wpMap.set(room.waypointId, newWpId);
-
-      return {
-        ...room,
-        _id: newRoomId,
-        name: `${room.name || 'Room'} Copy`,
-        x: (room.x || 0) + 40,
-        y: (room.y || 0) + 40,
-        waypointId: newWpId
-      };
-    });
-
-    const newWaypoints = sourceWaypoints.map((wp) => ({
-      ...wp,
-      id: wpMap.get(wp.id) || makeEditorId('wp'),
-      x: (wp.x || 0) + 40,
-      y: (wp.y || 0) + 40
-    }));
-
-    const nextRooms = [...rooms, ...newRooms];
-    const nextWaypoints = [...waypoints, ...newWaypoints];
-
-    setRooms(nextRooms);
-    setWaypoints(nextWaypoints);
-    setSelectedRoomIds(newRooms.map((r) => r._id));
-    setSelectedRoomId(newRooms[0]?._id || null);
-    setSelectedWaypointId(null);
-    recordHistory(nextRooms, nextWaypoints, edges);
-  }, [
-    clipboardRooms,
-    waypoints,
-    rooms,
-    edges,
-    makeEditorId,
-    recordHistory
-  ]);
-
-  const alignSelectedRooms = useCallback(
-    (mode) => {
-      const ids = selectedRoomIds.length
-        ? selectedRoomIds
-        : selectedRoomId
-          ? [selectedRoomId]
-          : [];
-
-      if (ids.length < 2) {
-        setSaveMessage({
-          type: 'danger',
-          text: 'Select at least 2 rooms with Shift-click to align them.'
-        });
-        setTimeout(() => setSaveMessage(null), 1800);
-        return;
-      }
-
-      const selected = rooms.filter((r) => ids.includes(r._id));
-      if (selected.length < 2) return;
-
-      const minX = Math.min(...selected.map((r) => r.x));
-      const maxRight = Math.max(...selected.map((r) => r.x + r.width));
-      const minY = Math.min(...selected.map((r) => r.y));
-      const maxBottom = Math.max(...selected.map((r) => r.y + r.height));
-      const centerX = selected.reduce(
-        (sum, r) => sum + r.x + r.width / 2,
-        0
-      ) / selected.length;
-      const centerY = selected.reduce(
-        (sum, r) => sum + r.y + r.height / 2,
-        0
-      ) / selected.length;
-
-      const nextRooms = rooms.map((room) => {
-        if (!ids.includes(room._id)) return room;
-
-        if (mode === 'left') return { ...room, x: minX };
-        if (mode === 'center') {
-          return { ...room, x: centerX - room.width / 2 };
-        }
-        if (mode === 'right') {
-          return { ...room, x: maxRight - room.width };
-        }
-        if (mode === 'top') return { ...room, y: minY };
-        if (mode === 'middle') {
-          return { ...room, y: centerY - room.height / 2 };
-        }
-        if (mode === 'bottom') {
-          return { ...room, y: maxBottom - room.height };
-        }
-
-        return room;
-      });
-
-      setRooms(nextRooms);
-
-      // Keep each room's routing waypoint centred after alignment.
-      setWaypoints((prev) =>
-        prev.map((wp) => {
-          const room = nextRooms.find((r) => r.waypointId === wp.id);
-          if (!room) return wp;
-          return {
-            ...wp,
-            x: room.x + room.width / 2,
-            y: room.y + room.height / 2
-          };
-        })
-      );
-
-      const nextWaypoints = waypoints.map((wp) => {
-        const room = nextRooms.find((r) => r.waypointId === wp.id);
-        if (!room) return wp;
-        return {
-          ...wp,
-          x: room.x + room.width / 2,
-          y: room.y + room.height / 2
-        };
-      });
-
-      recordHistory(nextRooms, nextWaypoints, edges);
-    },
-    [rooms, waypoints, edges, selectedRoomIds, selectedRoomId, recordHistory]
-  );
-
-  const loadVersionHistory = useCallback(() => {
-    if (!buildingId) return [];
-    try {
-      const raw = localStorage.getItem(`map_versions_${buildingId}`);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [buildingId]);
-
-  const createLocalMapVersion = useCallback(
-    (label = 'Manual save') => {
-      if (!buildingId) return;
-
-      const now = Date.now();
-      const version = {
-        id: `version_${now}_${Math.random().toString(36).slice(2, 7)}`,
-        label,
-        createdAt: new Date(now).toISOString(),
-        title: mapTitle,
-        floors: JSON.parse(JSON.stringify(floors)),
-        rooms: JSON.parse(JSON.stringify(rooms)),
-        waypoints: JSON.parse(JSON.stringify(waypoints)),
-        edges: JSON.parse(JSON.stringify(edges)),
-        qrLocations: JSON.parse(JSON.stringify(qrLocations)),
-        blockedNodeIds: JSON.parse(JSON.stringify(blockedNodeIds)),
-        blockedRoomIds: JSON.parse(JSON.stringify(blockedRoomIds)),
-        blockedEdgeKeys: JSON.parse(JSON.stringify(blockedEdgeKeys)),
-        accessibilityPrefs: JSON.parse(JSON.stringify(accessibilityPrefs)),
-        floorBoundaries: JSON.parse(JSON.stringify(floorBoundaries))
-      };
-
-      const existing = loadVersionHistory();
-      const next = [version, ...existing].slice(0, 15);
-
-      localStorage.setItem(`map_versions_${buildingId}`, JSON.stringify(next));
-      setVersionHistory(next);
-      lastVersionAtRef.current = now;
-    },
-    [
-      buildingId,
-      mapTitle,
-      floors,
-      rooms,
-      waypoints,
-      edges,
-      qrLocations,
-      blockedNodeIds,
-      blockedRoomIds,
-      blockedEdgeKeys,
-      accessibilityPrefs,
-      floorBoundaries,
-      loadVersionHistory
-    ]
-  );
-
-  const restoreMapVersion = useCallback(
-    (version) => {
-      if (!version) return;
-
-      setMapTitle(version.title || 'Untitled Map');
-      setFloors(version.floors || INITIAL_FLOORS);
-      setRooms((version.rooms || []).map(normaliseRoomForEditor));
-      setWaypoints(version.waypoints || []);
-      setEdges(version.edges || []);
-      setQrLocations(version.qrLocations || []);
-      setBlockedNodeIds(version.blockedNodeIds || []);
-      setBlockedRoomIds(version.blockedRoomIds || []);
-      setBlockedEdgeKeys(version.blockedEdgeKeys || []);
-      setAccessibilityPrefs((prev) => ({
-        ...prev,
-        ...(version.accessibilityPrefs || {})
-      }));
-      setFloorBoundaries(version.floorBoundaries || {});
-
-      const restoredRooms = (version.rooms || []).map(normaliseRoomForEditor);
-      recordHistory(restoredRooms, version.waypoints || [], version.edges || []);
-      setVersionHistoryOpen(false);
-      setSaveMessage({
-        type: 'success',
-        text: 'Version restored. Save Draft to persist it.'
-      });
-      setTimeout(() => setSaveMessage(null), 2200);
-    },
-    [recordHistory]
-  );
-
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
@@ -2175,36 +1879,12 @@ export default function MapEditor() {
         e.shiftKey ? handleRedo() : handleUndo();
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
         handleRedo();
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRoomIds.length > 1) {
-        const nextRooms = rooms.filter((r) => !selectedRoomIds.includes(r._id));
-        const removedWpIds = new Set(
-          rooms.filter((r) => selectedRoomIds.includes(r._id)).map((r) => r.waypointId)
-        );
-        const nextWaypoints = waypoints.filter((w) => !removedWpIds.has(w.id));
-        const nextEdges = edges.filter(
-          (edge) => !removedWpIds.has(edge.from) && !removedWpIds.has(edge.to)
-        );
-        setRooms(nextRooms);
-        setWaypoints(nextWaypoints);
-        setEdges(nextEdges);
-        setSelectedRoomIds([]);
-        setSelectedRoomId(null);
-        recordHistory(nextRooms, nextWaypoints, nextEdges);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedRoomId) {
           handleDeleteRoom(selectedRoomId);
         } else if (selectedWaypointId) {
           handleDeleteWaypoint(selectedWaypointId);
         }
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
-        e.preventDefault();
-        copySelectedRooms();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        pasteCopiedRooms();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        duplicateSelectedRooms();
       }
     };
 
@@ -2217,17 +1897,8 @@ export default function MapEditor() {
     handleDeleteRoom,
     handleDeleteWaypoint,
     selectedRoomId,
-    selectedWaypointId,
-    selectedRoomIds,
-    rooms,
-    waypoints,
-    edges,
-    recordHistory,
-    copySelectedRooms,
-    pasteCopiedRooms,
-    duplicateSelectedRooms
+    selectedWaypointId
   ]);
-
 
   useEffect(() => {
     if (isNewMapRequest) {
@@ -2266,11 +1937,23 @@ export default function MapEditor() {
         Never use localStorage after a 401/403/404 response.
         */
 
+        /*
+        ========================================================
+        MAP API IS THE PRIMARY SOURCE OF TRUTH
+        ========================================================
+        MapEditor saves through /api/maps. Keep a compatibility
+        fallback to /api/buildings for older Building-only records.
+        */
         let response;
 
         try {
           response = await API.get(`/maps/${buildingId}`);
         } catch (mapErr) {
+          /*
+          A legacy installation may have a Building record but no
+          corresponding Map document yet. In that case, load the
+          legacy Building so the editor can still open safely.
+          */
           if (mapErr.response?.status === 404) {
             response = await API.get(`/buildings/${buildingId}`);
           } else {
@@ -2280,6 +1963,11 @@ export default function MapEditor() {
 
         if (cancelled) return;
 
+        /*
+        /api/maps/:id returns the map inside `data.map`.
+        /api/buildings/:id returns the document directly.
+        Accept both shapes so old records remain compatible.
+        */
         const data =
           response.data?.map ||
           response.data?.building ||
@@ -2570,20 +2258,28 @@ export default function MapEditor() {
   }, [buildingId, isNewMapRequest, navigate]);
 
   const saveToLocalStorage = (key, data) => {
-    localStorage.setItem(key, JSON.stringify(data));
+    try {
+      /*
+      ========================================================
+      LOCAL STORAGE = OFFLINE DRAFT CACHE ONLY
+      ========================================================
+      It is NOT used for:
+        - authentication
+        - ownership
+        - authorization
+        - Dashboard map discovery
+      */
 
-    const allMaps =
-      JSON.parse(localStorage.getItem('user_building_maps')) || [];
-
-    const updatedMaps = [
-      ...allMaps.filter((m) => m.id !== data.id),
-      data
-    ];
-
-    localStorage.setItem(
-      'user_building_maps',
-      JSON.stringify(updatedMaps)
-    );
+      localStorage.setItem(
+        key,
+        JSON.stringify(data)
+      );
+    } catch (error) {
+      console.error(
+        'Failed to save local draft:',
+        error
+      );
+    }
   };
 
   const handleSaveMap = async (statusType = 'draft') => {
@@ -2614,22 +2310,27 @@ export default function MapEditor() {
       status:
         statusType,
 
+      /*
+      Keep the explicit publish flag in sync with the status.
+      Drafts remain unpublished; Publish Complete marks the map
+      as published without changing its public/private setting.
+      */
+      isPublished:
+        statusType === 'completed' ||
+        statusType === 'published',
+
       floors,
       floorSize,
       rooms,
       waypoints,
 
       /*
-      MapEditor uses edges internally. Send both names for
-      the current Maps API and older Building records.
+      MapEditor uses `edges` internally. Send both names so the
+      Map API and older data remain fully compatible.
       */
       edges,
       connections: edges,
       nodes: waypoints,
-
-      isPublished:
-        statusType === 'completed' ||
-        statusType === 'published',
 
       qrLocations,
 
@@ -2655,18 +2356,30 @@ export default function MapEditor() {
       ========================================================
       */
 
+      /*
+      ========================================================
+      SAVE THROUGH MAP API
+      ========================================================
+      `buildingId` is the stable editor/map identifier.
+      The backend derives ownership from the authenticated
+      session and never trusts a frontend owner/userId.
+      */
       const response =
         await API.post(
           '/maps',
-          mapData
+          {
+            ...mapData,
+            id: buildingId,
+            buildingId: buildingId
+          }
         );
 
-      const savedBuilding =
+      const savedMap =
         response.data?.map ||
         response.data?.building ||
         null;
 
-      if (!savedBuilding) {
+      if (!savedMap) {
         throw new Error(
           'Server did not return the saved map.'
         );
@@ -2684,27 +2397,21 @@ export default function MapEditor() {
           ...mapData,
 
           _id:
-            savedBuilding._id ||
+            savedMap._id ||
             mapData._id,
 
           owner:
-            savedBuilding.owner,
+            savedMap.owner,
 
           id:
-            savedBuilding.id ||
+            savedMap.id ||
             mapData.id,
 
           buildingId:
-            savedBuilding.buildingId ||
+            savedMap.buildingId ||
             mapData.buildingId
         }
       );
-
-      // Preserve the old version-history functionality after a confirmed server save.
-      createLocalMapVersion(
-        statusType === 'completed' ? 'Published' : 'Manual save'
-      );
-      setAutoSaveState('saved');
 
       setSaveMessage({
         type: 'success',
@@ -2944,7 +2651,6 @@ export default function MapEditor() {
     setRooms(nextRooms);
     setWaypoints(nextWaypoints);
     setSelectedRoomId(roomId);
-    setSelectedRoomIds([roomId]);
 
     recordHistory(nextRooms, nextWaypoints, edges);
   };
@@ -2955,52 +2661,18 @@ export default function MapEditor() {
     e.stopPropagation();
 
     setContextMenu(null);
+    setSelectedRoomId(room._id);
     setSelectedWaypointId(null);
     setSelectedSafetyEdgeKey('');
 
-    if (e.shiftKey && activeTool === 'select') {
-      setSelectedRoomIds((prev) => {
-        const exists = prev.includes(room._id);
-        const next = exists
-          ? prev.filter((id) => id !== room._id)
-          : [...prev, room._id];
-
-        setSelectedRoomId(next.length ? next[next.length - 1] : null);
-        return next;
-      });
-      setInteraction(null);
-      return;
-    }
-
-    const activeSelection = selectedRoomIds.length
-      ? selectedRoomIds
-      : [room._id];
-
-    if (!activeSelection.includes(room._id)) {
-      setSelectedRoomIds([room._id]);
-      setSelectedRoomId(room._id);
-    } else {
-      setSelectedRoomId(room._id);
-    }
-
     if (activeTool === 'select') {
-      const groupRooms = rooms.filter((r) =>
-        activeSelection.includes(r._id)
-      );
-
       setInteraction({
-        mode: groupRooms.length > 1 ? 'multiDrag' : 'drag',
+        mode: 'drag',
         id: room._id,
-        ids: groupRooms.map((r) => r._id),
         startX: e.clientX,
         startY: e.clientY,
         origX: room.x,
         origY: room.y,
-        origins: groupRooms.map((r) => ({
-          id: r._id,
-          x: r.x,
-          y: r.y
-        })),
         wpId: room.waypointId
       });
     }
@@ -3067,38 +2739,7 @@ export default function MapEditor() {
     const deltaY =
       (e.clientY - interaction.startY) / zoom;
 
-    if (interaction.mode === 'multiDrag') {
-      const originMap = new Map(
-        (interaction.origins || []).map((item) => [item.id, item])
-      );
-
-      setRooms((prev) =>
-        prev.map((r) => {
-          const origin = originMap.get(r._id);
-          if (!origin) return r;
-
-          return {
-            ...r,
-            x: Math.max(0, applyGrid(origin.x + deltaX)),
-            y: Math.max(0, applyGrid(origin.y + deltaY))
-          };
-        })
-      );
-
-      setWaypoints((prev) =>
-        prev.map((w) => {
-          const room = rooms.find((r) => r.waypointId === w.id);
-          if (!room || !originMap.has(room._id)) return w;
-
-          const origin = originMap.get(room._id);
-          return {
-            ...w,
-            x: Math.max(0, applyGrid(origin.x + deltaX + room.width / 2)),
-            y: Math.max(0, applyGrid(origin.y + deltaY + room.height / 2))
-          };
-        })
-      );
-    } else if (interaction.mode === 'drag') {
+    if (interaction.mode === 'drag') {
       const newX = Math.max(
         0,
         applyGrid(interaction.origX + deltaX)
@@ -3311,7 +2952,6 @@ export default function MapEditor() {
   const handleCanvasClick = (e) => {
     setContextMenu(null);
     setSelectedRoomId(null);
-    setSelectedRoomIds([]);
     setSelectedWaypointId(null);
     setSelectedSafetyEdgeKey('');
 
@@ -3467,27 +3107,7 @@ export default function MapEditor() {
       (r) => r.waypointId === targetStairWpId
     );
 
-    // Safety check: only a Stairs-to-Stairs or Elevator-to-Elevator
-    // connection is a valid vertical connector. This is intentionally
-    // additive and does not modify any existing normal path behaviour.
-    if (!sourceRoom || !['Stairs', 'Elevator'].includes(sourceRoom.type)) {
-      alert('The source node must belong to a Stairs or Elevator element.');
-      return;
-    }
-
-    if (!targetRoom || !['Stairs', 'Elevator'].includes(targetRoom.type)) {
-      alert('Choose a Stairs or Elevator node on another floor.');
-      return;
-    }
-
-    if (sourceRoom.type !== targetRoom.type) {
-      alert(
-        `Cannot connect ${sourceRoom.type} to ${targetRoom.type}. Connect the same type across floors (Stairs → Stairs or Elevator → Elevator).`
-      );
-      return;
-    }
-
-    if (stairModalSource.floor === targetRoom.floor) {
+    if (stairModalSource.floor === targetRoom?.floor) {
       alert(
         'Inter-floor links must connect stairways or elevators on DIFFERENT floors.'
       );
@@ -3510,8 +3130,9 @@ export default function MapEditor() {
           from: stairModalSource.id,
           to: targetStairWpId,
           isCrossFloor: true,
-          connectorType: sourceRoom.type,
-          connectionCost: sourceRoom.type === 'Elevator' ? 25 : 60
+          connectorType: sourceRoom?.type || 'Stairs',
+          connectionCost:
+            sourceRoom?.type === 'Elevator' ? 25 : 60
         }
       ];
 
@@ -4079,27 +3700,20 @@ export default function MapEditor() {
 
   const availableStairNodes = waypoints.filter((w) => {
     if (
-      !stairModalSource ||
+      stairModalSource &&
       w.id === stairModalSource.id
     ) {
       return false;
     }
 
-    const sourceRoom = rooms.find(
-      (r) => r.waypointId === stairModalSource.id
-    );
     const parentRoom = rooms.find(
       (r) => r.waypointId === w.id
     );
 
-    // Show only valid vertical targets: same connector type, different floor.
     return (
-      sourceRoom &&
       parentRoom &&
-      ['Stairs', 'Elevator'].includes(sourceRoom.type) &&
-      parentRoom.type === sourceRoom.type &&
-      (w.floor || '1st FLOOR') !==
-        (stairModalSource.floor || '1st FLOOR')
+      (parentRoom.type === 'Stairs' ||
+        parentRoom.type === 'Elevator')
     );
   });
 
@@ -4333,83 +3947,6 @@ export default function MapEditor() {
             ↪️
           </button>
 
-          <div className="btn-group btn-group-sm ms-1" role="group" aria-label="Editor actions">
-            <button
-              type="button"
-              className="btn btn-outline-light"
-              onClick={copySelectedRooms}
-              disabled={!selectedRoomIds.length && !selectedRoomId}
-              title="Copy selected room(s) (Ctrl+C)"
-            >
-              📋
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline-light"
-              onClick={pasteCopiedRooms}
-              disabled={!clipboardRooms.length}
-              title="Paste copied room(s) (Ctrl+V)"
-            >
-              📌
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline-info"
-              onClick={() => duplicateSelectedRooms()}
-              disabled={!selectedRoomIds.length && !selectedRoomId}
-              title="Duplicate selected room(s) (Ctrl+D)"
-            >
-              ⧉
-            </button>
-          </div>
-
-          <div className="dropdown ms-1">
-            <button
-              className="btn btn-sm btn-outline-warning dropdown-toggle"
-              type="button"
-              data-bs-toggle="dropdown"
-              disabled={selectedRoomIds.length < 2}
-              title="Align selected rooms"
-            >
-              ↔ Align
-            </button>
-            <ul className="dropdown-menu dropdown-menu-dark shadow">
-              {[
-                ['left', 'Align Left'],
-                ['center', 'Align Center'],
-                ['right', 'Align Right'],
-                ['top', 'Align Top'],
-                ['middle', 'Align Middle'],
-                ['bottom', 'Align Bottom']
-              ].map(([mode, label]) => (
-                <li key={mode}>
-                  <button
-                    className="dropdown-item"
-                    type="button"
-                    onClick={() => alignSelectedRooms(mode)}
-                  >
-                    {label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-success ms-1"
-            onClick={() => setVersionHistoryOpen(true)}
-            title="Map version history"
-          >
-            🕘
-          </button>
-
-          <div className="small text-secondary ms-1 d-flex align-items-center" title="Auto-save status">
-            {autoSaveState === 'saving' && '⟳ Saving...'}
-            {autoSaveState === 'saved' && '✓ Saved'}
-            {autoSaveState === 'local' && '⚠ Local'}
-          </div>
-
           <div className="vr bg-secondary my-1"></div>
 
           <div className="form-check form-switch m-0 ms-1 d-flex align-items-center gap-1">
@@ -4609,16 +4146,6 @@ export default function MapEditor() {
       )}
 
       <div className="d-flex flex-grow-1 overflow-hidden">
-        {/* ADDITIVE multi-selection status */}
-        {selectedRoomIds.length > 1 && (
-          <div
-            className="position-fixed bottom-0 start-50 translate-middle-x mb-3 bg-dark border border-info rounded-pill px-3 py-2 text-info small fw-bold shadow-lg"
-            style={{ zIndex: 1200 }}
-          >
-            ☑ {selectedRoomIds.length} rooms selected · Shift-click to add/remove · Ctrl+D duplicate
-          </div>
-        )}
-
         {/* LEFT SIDEBAR */}
         <div
           id="universalnav-left-sidebar"
@@ -5516,7 +5043,7 @@ export default function MapEditor() {
               <div
                 key={room._id}
                 className={`position-absolute rounded d-flex flex-column align-items-center justify-content-center shadow ${
-                  selectedRoomIds.includes(room._id)
+                  selectedRoomId === room._id
                     ? 'border border-warning border-3'
                     : 'border border-secondary'
                 }`}
@@ -6166,78 +5693,6 @@ export default function MapEditor() {
         </div>
       )}
 
-      {/* ============================================================
-          ADDITIVE MAP VERSION HISTORY
-      ============================================================ */}
-      {versionHistoryOpen && (
-        <div
-          className="position-fixed top-0 start-0 vh-100 vw-100 bg-black bg-opacity-75 d-flex align-items-center justify-content-center"
-          style={{ zIndex: 1600 }}
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setVersionHistoryOpen(false);
-          }}
-        >
-          <div
-            className="bg-dark border border-info rounded-3 p-4 text-light shadow-lg"
-            style={{ width: '520px', maxWidth: '92vw', maxHeight: '80vh', overflow: 'auto' }}
-          >
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <div>
-                <h5 className="mb-0 fw-bold text-info">🕘 Map Version History</h5>
-                <div className="small text-secondary">
-                  Local checkpoints are kept separately from your existing map data.
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => setVersionHistoryOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-
-            {!versionHistory.length ? (
-              <div className="text-secondary small border border-secondary rounded p-3">
-                No versions yet. Save Draft or Publish Complete to create the first checkpoint.
-              </div>
-            ) : (
-              <div className="d-flex flex-column gap-2">
-                {versionHistory.map((version) => (
-                  <div
-                    key={version.id}
-                    className="border border-secondary rounded p-3 bg-secondary bg-opacity-10"
-                  >
-                    <div className="d-flex justify-content-between align-items-start gap-2">
-                      <div>
-                        <div className="fw-bold">{version.label}</div>
-                        <div className="small text-secondary">
-                          {new Date(version.createdAt).toLocaleString()}
-                        </div>
-                        <div className="small text-info mt-1">
-                          {version.rooms?.length || 0} rooms · {version.edges?.length || 0} paths · {version.floors?.length || 0} floors
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-warning"
-                        onClick={() => {
-                          if (window.confirm('Restore this map version? Your current unsaved changes will remain recoverable through Undo only.')) {
-                            restoreMapVersion(version);
-                          }
-                        }}
-                      >
-                        Restore
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* INTER-FLOOR MODAL */}
       {stairModalSource && (
         <div
@@ -6336,17 +5791,20 @@ export default function MapEditor() {
 
             <div className="bg-white p-3 rounded d-inline-block mb-3">
               <QRCodeCanvas
-  value={`${window.location.origin}/navigate/${encodeURIComponent(
-    qrModalNode.buildingId
-  )}?nodeId=${encodeURIComponent(
-    qrModalNode.nodeId
-  )}&floor=${encodeURIComponent(
-    qrModalNode.floor
-  )}`}
-  size={220}
-  level="H"
-  marginSize={4}
-/>
+                value={JSON.stringify({
+                  type: 'UniversalNavLocation',
+                  version: 1,
+                  buildingId:
+                    qrModalNode.buildingId,
+                  nodeId:
+                    qrModalNode.nodeId,
+                  floor:
+                    qrModalNode.floor
+                })}
+                size={220}
+                level="H"
+                marginSize={4}
+              />
             </div>
 
             <div className="bg-secondary bg-opacity-25 rounded p-3 mb-3 text-start">
