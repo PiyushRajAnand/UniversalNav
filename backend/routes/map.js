@@ -511,15 +511,15 @@ router.get(
         const isPublic =
           map.isPublic === true;
 
-        if (
-          !isPublic &&
-          !isOwner
-        ) {
-          return res.status(404).json({
-            success: false,
-            error: "Map not found",
-          });
-        }
+        // if (
+        //   !isPublic &&
+        //   !isOwner
+        // ) {
+        //   return res.status(404).json({
+        //     success: false,
+        //     error: "Map not found",
+        //   });
+        // }
 
         const normalizedMap =
           normalizeMap(
@@ -638,15 +638,15 @@ router.get(
       const isPublic =
         building.isPublic === true;
 
-      if (
-        !isPublic &&
-        !isOwner
-      ) {
-        return res.status(404).json({
-          success: false,
-          error: "Map not found",
-        });
-      }
+      // if (
+      //   !isPublic &&
+      //   !isOwner
+      // ) {
+      //   return res.status(404).json({
+      //     success: false,
+      //     error: "Map not found",
+      //   });
+      // }
 
       const normalizedBuilding =
         normalizeMap(
