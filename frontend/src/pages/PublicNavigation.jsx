@@ -248,7 +248,9 @@ export default function PublicNavigation() {
           `${API_BASE_URL}/api/maps/${encodeURIComponent(buildingId)}`,
           {
             method: "GET",
-            credentials: "include",
+            // Public QR navigation must not depend on a login/session.
+            // Keep this request completely anonymous.
+            credentials: "omit",
             headers: {
               Accept: "application/json",
             },
