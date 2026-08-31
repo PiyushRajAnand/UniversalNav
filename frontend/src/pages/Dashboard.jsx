@@ -2,8 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 
-const API_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000'
+).replace(/\/$/, '');
+
+const API_BASE_URL = API_URL.endsWith('/api')
+  ? API_URL
+  : `${API_URL}/api`;
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -28,7 +33,7 @@ export default function Dashboard() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       try {
-        const res = await fetch(`${API_URL}/maps`, {
+        const res = await fetch(`${API_BASE_URL}/maps`, {
           method: 'GET', headers, credentials: 'include'
         });
         if (!res.ok) throw new Error(`Maps request failed with ${res.status}`);
@@ -86,7 +91,7 @@ export default function Dashboard() {
 
     try {
       for (const candidate of candidates) {
-        const res = await fetch(`${API_URL}/maps/${encodeURIComponent(candidate)}`, {
+        const res = await fetch(`${API_BASE_URL}/maps/${encodeURIComponent(candidate)}`, {
           method: 'DELETE', headers, credentials: 'include'
         });
         lastStatus = res.status;
