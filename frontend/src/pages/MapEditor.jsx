@@ -3467,7 +3467,27 @@ export default function MapEditor() {
       (r) => r.waypointId === targetStairWpId
     );
 
-    if (stairModalSource.floor === targetRoom?.floor) {
+    // Safety check: only a Stairs-to-Stairs or Elevator-to-Elevator
+    // connection is a valid vertical connector. This is intentionally
+    // additive and does not modify any existing normal path behaviour.
+    if (!sourceRoom || !['Stairs', 'Elevator'].includes(sourceRoom.type)) {
+      alert('The source node must belong to a Stairs or Elevator element.');
+      return;
+    }
+
+    if (!targetRoom || !['Stairs', 'Elevator'].includes(targetRoom.type)) {
+      alert('Choose a Stairs or Elevator node on another floor.');
+      return;
+    }
+
+    if (sourceRoom.type !== targetRoom.type) {
+      alert(
+        `Cannot connect ${sourceRoom.type} to ${targetRoom.type}. Connect the same type across floors (Stairs → Stairs or Elevator → Elevator).`
+      );
+      return;
+    }
+
+    if (stairModalSource.floor === targetRoom.floor) {
       alert(
         'Inter-floor links must connect stairways or elevators on DIFFERENT floors.'
       );
@@ -3490,9 +3510,8 @@ export default function MapEditor() {
           from: stairModalSource.id,
           to: targetStairWpId,
           isCrossFloor: true,
-          connectorType: sourceRoom?.type || 'Stairs',
-          connectionCost:
-            sourceRoom?.type === 'Elevator' ? 25 : 60
+          connectorType: sourceRoom.type,
+          connectionCost: sourceRoom.type === 'Elevator' ? 25 : 60
         }
       ];
 
@@ -4060,20 +4079,27 @@ export default function MapEditor() {
 
   const availableStairNodes = waypoints.filter((w) => {
     if (
-      stairModalSource &&
+      !stairModalSource ||
       w.id === stairModalSource.id
     ) {
       return false;
     }
 
+    const sourceRoom = rooms.find(
+      (r) => r.waypointId === stairModalSource.id
+    );
     const parentRoom = rooms.find(
       (r) => r.waypointId === w.id
     );
 
+    // Show only valid vertical targets: same connector type, different floor.
     return (
+      sourceRoom &&
       parentRoom &&
-      (parentRoom.type === 'Stairs' ||
-        parentRoom.type === 'Elevator')
+      ['Stairs', 'Elevator'].includes(sourceRoom.type) &&
+      parentRoom.type === sourceRoom.type &&
+      (w.floor || '1st FLOOR') !==
+        (stairModalSource.floor || '1st FLOOR')
     );
   });
 
