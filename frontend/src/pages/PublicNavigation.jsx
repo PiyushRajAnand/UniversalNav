@@ -434,17 +434,28 @@ export default function PublicNavigation() {
     };
   }, [map]);
 
-  // Keep the public map fully visible on phones while preserving
-  // the original coordinate system used by the navigation engine.
+  // Keep the complete floor map visible on phones and desktop.
+  // IMPORTANT: the original floor coordinates are never changed.
+  // We scale the rendered surface itself so width/height/layout all stay
+  // in sync. This prevents the old transform-based clipping on mobile.
   useEffect(() => {
     const viewport = mapViewportRef.current;
     if (!viewport) return;
 
     const updateMapScale = () => {
-      const availableWidth = viewport.clientWidth;
-      if (!availableWidth) return;
+      const availableWidth = Math.max(1, viewport.clientWidth);
+      const availableHeight = Math.max(
+        1,
+        Math.min(window.innerHeight * 0.72, 760)
+      );
 
-      const nextScale = Math.min(1, availableWidth / floorSize.width);
+      const widthScale = availableWidth / floorSize.width;
+      const heightScale = availableHeight / floorSize.height;
+
+      // Fit the complete floor in the available phone/desktop area.
+      // Never enlarge the original map beyond 1x.
+      const nextScale = Math.min(1, widthScale, heightScale);
+
       setMapScale(Number(nextScale.toFixed(4)));
     };
 
@@ -453,12 +464,14 @@ export default function PublicNavigation() {
     const observer = new ResizeObserver(updateMapScale);
     observer.observe(viewport);
     window.addEventListener("resize", updateMapScale);
+    window.addEventListener("orientationchange", updateMapScale);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updateMapScale);
+      window.removeEventListener("orientationchange", updateMapScale);
     };
-  }, [floorSize.width]);
+  }, [floorSize.width, floorSize.height]);
 
   // ==============================================================
   // CURRENT FLOOR DATA
@@ -3383,6 +3396,66 @@ export default function PublicNavigation() {
           )}
         </div>
 
+        {/* CURRENT LOCATION / STARTING ROOM
+            The same startRoomId used by normal navigation is used here,
+            so emergency evacuation starts from the room selected by the user. */}
+        <div
+          style={{
+            marginTop: 15,
+            marginBottom: 12
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              marginBottom: 7
+            }}
+          >
+            <strong>📍 Where are you now?</strong>
+          </label>
+
+          <select
+            value={startRoomId}
+            onChange={(e) =>
+              setStartRoomId(e.target.value)
+            }
+            style={{
+              width: "100%",
+              padding: 13,
+              borderRadius: 8,
+              background: "#172b55",
+              color: "white",
+              border: "1px solid #4aa3ff"
+            }}
+          >
+            <option value="">
+              Select your current room
+            </option>
+
+            {rooms.map((room) => (
+              <option
+                key={room._id}
+                value={room._id}
+              >
+                {getRoomIcon(room)}{" "}
+                {room.name || "Unnamed"}{" "}
+                —{" "}
+                {room.floor || "1st FLOOR"}
+              </option>
+            ))}
+          </select>
+
+          <div
+            style={{
+              marginTop: 7,
+              fontSize: 13,
+              opacity: 0.75
+            }}
+          >
+            Emergency routing will start from this room.
+          </div>
+        </div>
+
         <div
           style={{
             display:
@@ -3776,10 +3849,8 @@ export default function PublicNavigation() {
                 "#081936",
               overflow:
                 "hidden",
-              transform:
-                `scale(${mapScale})`,
-              transformOrigin:
-                "top left"
+              zoom:
+                mapScale
             }}
           >
             {/* ==================================================
@@ -5193,6 +5264,13 @@ export default function PublicNavigation() {
 
           .map-viewport {
             border-radius: 13px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+          }
+
+          .public-map-card {
+            overflow: hidden !important;
           }
 
           .public-stats-grid {
