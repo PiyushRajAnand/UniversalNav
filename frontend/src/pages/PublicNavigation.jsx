@@ -185,6 +185,9 @@ export default function PublicNavigation() {
   const [currentLocationNodeId, setCurrentLocationNodeId] =
     useState("");
 
+  // Explicit room selected as the user\'s current location for emergency routing.
+  const [currentRoomId, setCurrentRoomId] = useState("");
+
   // ==============================================================
   // EMERGENCY
   // ==============================================================
@@ -434,81 +437,31 @@ export default function PublicNavigation() {
     };
   }, [map]);
 
-  // ==============================================================
-  // RESPONSIVE MAP SCALE
-  // --------------------------------------------------------------
-  // Only the visual scale changes on narrow screens.
-  // The original map coordinate system and every map feature remain
-  // untouched.
-  // ==============================================================
+  // Keep the public map fully visible on phones while preserving
+  // the original coordinate system used by the navigation engine.
   useEffect(() => {
+    const viewport = mapViewportRef.current;
+    if (!viewport) return;
+
     const updateMapScale = () => {
-      const viewport = mapViewportRef.current;
-
-      if (!viewport || !floorSize.width || floorSize.width <= 0) {
-        return;
-      }
-
       const availableWidth = viewport.clientWidth;
+      if (!availableWidth) return;
 
-      if (!availableWidth || availableWidth <= 0) {
-        return;
-      }
-
-      // Keep the original 1:1 size on larger screens.
-      // On phones, scale the complete map down to fit its width.
-      const nextScale = Math.min(
-        1,
-        availableWidth / floorSize.width
-      );
-
-      setMapScale(
-        Number(
-          Math.max(0.05, nextScale).toFixed(4)
-        )
-      );
+      const nextScale = Math.min(1, availableWidth / floorSize.width);
+      setMapScale(Number(nextScale.toFixed(4)));
     };
 
-    // Run once after the viewport has rendered.
-    const frameId = requestAnimationFrame(
-      updateMapScale
-    );
+    updateMapScale();
 
-    window.addEventListener(
-      "resize",
-      updateMapScale
-    );
-
-    let observer;
-
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(
-        updateMapScale
-      );
-
-      if (mapViewportRef.current) {
-        observer.observe(
-          mapViewportRef.current
-        );
-      }
-    }
+    const observer = new ResizeObserver(updateMapScale);
+    observer.observe(viewport);
+    window.addEventListener("resize", updateMapScale);
 
     return () => {
-      cancelAnimationFrame(frameId);
-
-      window.removeEventListener(
-        "resize",
-        updateMapScale
-      );
-
-      if (observer) {
-        observer.disconnect();
-      }
+      observer.disconnect();
+      window.removeEventListener("resize", updateMapScale);
     };
-  }, [
-    floorSize.width,
-    floorSize.height
-  ]);
+  }, [floorSize.width]);
 
   // ==============================================================
   // CURRENT FLOOR DATA
@@ -1693,6 +1646,18 @@ export default function PublicNavigation() {
       let startWpId =
         currentLocationNodeId;
 
+      if (!startWpId && currentRoomId) {
+        const currentRoom =
+          rooms.find(
+            (room) =>
+              String(room._id) ===
+              String(currentRoomId)
+          );
+
+        startWpId =
+          currentRoom?.waypointId;
+      }
+
       if (!startWpId) {
         const startRoom =
           rooms.find(
@@ -1998,6 +1963,7 @@ export default function PublicNavigation() {
     },
     [
       currentLocationNodeId,
+      currentRoomId,
       startRoomId,
       rooms,
       blockedRoomIds,
@@ -3370,6 +3336,86 @@ export default function PublicNavigation() {
 
         <div
           style={{
+            marginTop: 15,
+            marginBottom: 12
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              marginBottom: 7,
+              fontWeight: "bold"
+            }}
+          >
+            📍 Where are you now?
+          </label>
+
+          <select
+            value={currentRoomId}
+            onChange={(e) => {
+              const roomId = e.target.value;
+              setCurrentRoomId(roomId);
+              setRouteError("");
+
+              const room = rooms.find(
+                (item) =>
+                  String(item._id) ===
+                  String(roomId)
+              );
+
+              setCurrentLocationNodeId(
+                room?.waypointId || ""
+              );
+
+              if (room?.floor) {
+                setSelectedFloor(room.floor);
+              }
+            }}
+            style={{
+              width: "100%",
+              padding: 12,
+              borderRadius: 8,
+              background: "#172b55",
+              color: "white",
+              border: "1px solid #ef4444"
+            }}
+          >
+            <option value="">
+              📍 I am in this room — Select location
+            </option>
+
+            {rooms.map((room) => (
+              <option
+                key={room._id}
+                value={room._id}
+              >
+                {getRoomIcon(room)} {room.name || "Unnamed"} — {room.floor || "1st FLOOR"}
+              </option>
+            ))}
+          </select>
+
+          {currentRoomId && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 13,
+                opacity: 0.85
+              }}
+            >
+              📍 Starting evacuation from: {" "}
+              <strong>
+                {rooms.find(
+                  (room) =>
+                    String(room._id) ===
+                    String(currentRoomId)
+                )?.name || "Selected room"}
+              </strong>
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
             display:
               "flex",
             gap: 10,
@@ -3428,7 +3474,7 @@ export default function PublicNavigation() {
                 "bold"
             }}
           >
-            🚨 Route to Emergency Exit
+            🚨 Prepare Evacuation Route
           </button>
 
           {emergencyMode && (
