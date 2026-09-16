@@ -5,7 +5,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // USER
     // ============================================================
-
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -23,12 +22,12 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // ACTION
     // ============================================================
-
     action: {
       type: String,
 
       enum: [
         // Authentication
+        "REGISTER",
         "LOGIN",
         "LOGOUT",
 
@@ -72,7 +71,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // OPTIONAL DESCRIPTION
     // ============================================================
-
     description: {
       type: String,
       trim: true,
@@ -82,7 +80,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // TARGET INFORMATION
     // ============================================================
-
     resourceType: {
       type: String,
       trim: true,
@@ -98,7 +95,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // EXTRA DETAILS
     // ============================================================
-
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
@@ -107,7 +103,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // REQUEST INFORMATION
     // ============================================================
-
     ipAddress: {
       type: String,
       trim: true,
@@ -121,7 +116,6 @@ const auditLogSchema = new mongoose.Schema(
     // ============================================================
     // TIMESTAMP
     // ============================================================
-
     timestamp: {
       type: Date,
       default: Date.now,

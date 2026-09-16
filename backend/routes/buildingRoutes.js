@@ -19,13 +19,11 @@ const {
   findShortestPath,
 } = require("../utils/dijkstra");
 
-
 /*
 ============================================================
 HELPERS
 ============================================================
 */
-
 
 function isObjectId(value) {
   return (
@@ -33,7 +31,6 @@ function isObjectId(value) {
     mongoose.Types.ObjectId.isValid(value)
   );
 }
-
 
 function getUserId(req) {
   if (!req.user) return null;
@@ -45,13 +42,11 @@ function getUserId(req) {
   );
 }
 
-
 function sameId(a, b) {
   if (!a || !b) return false;
 
   return String(a) === String(b);
 }
-
 
 /*
 ============================================================
@@ -70,7 +65,6 @@ function buildingBelongsToUser(building, userId) {
   );
 }
 
-
 /*
 ============================================================
 FIND BUILDING
@@ -78,73 +72,61 @@ FIND BUILDING
 */
 
 async function findBuilding(identifier) {
-
   if (!identifier) {
     return null;
   }
 
-  const value =
-    String(identifier);
-
+  const value = String(identifier);
 
   let query;
 
-
-  if (
-    isObjectId(value)
-  ) {
-
+  if (isObjectId(value)) {
     query = {
       $or: [
         {
           _id: value,
         },
-
         {
           buildingId: value,
         },
-
         {
           id: value,
         },
       ],
     };
-
   } else {
-
     query = {
       $or: [
         {
-          buildingId:
-            value,
+          buildingId: value,
         },
-
         {
-          id:
-            value,
+          id: value,
         },
       ],
     };
   }
 
-
-  return Building.findOne(
-    query
-  );
+  return Building.findOne(query);
 }
-
 
 /*
 ============================================================
 GET /api/buildings
-
-PUBLIC
+============================================================
 
 Anonymous:
-    public buildings
+    PUBLIC buildings only
 
 Logged in:
-    public buildings + own buildings
+    ONLY buildings owned by logged-in user
+
+IMPORTANT:
+    A public building does NOT automatically appear in
+    another user's dashboard.
+
+    Public access is handled by the individual /:id
+    endpoint below.
 ============================================================
 */
 
@@ -152,81 +134,113 @@ router.get(
   "/",
   optionalProtect,
   async (req, res) => {
-
     try {
-
-      const userId =
-        getUserId(req);
-
+      const userId = getUserId(req);
 
       let query;
 
-
       if (userId) {
+        /*
+        ====================================================
+        AUTHENTICATED USER
+        ====================================================
+
+        ONLY return buildings belonging to this user.
+
+        Support both:
+          owner
+          userId
+
+        for compatibility with older records.
+        ====================================================
+        */
 
         query = {
           $or: [
             {
-              isPublic: true,
-            },
-
-            {
               owner: userId,
+            },
+            {
+              userId: userId,
             },
           ],
         };
 
+        console.log(
+          "🔐 BUILDING LIST AUTHORIZATION",
+          {
+            userId,
+            rule: "OWNER_ONLY",
+          }
+        );
       } else {
+        /*
+        ====================================================
+        ANONYMOUS USER
+        ====================================================
+
+        Anonymous users can only discover public
+        buildings.
+        ====================================================
+        */
 
         query = {
           isPublic: true,
         };
+
+        console.log(
+          "🌐 PUBLIC BUILDING ACCESS",
+          {
+            rule: "PUBLIC_ONLY",
+          }
+        );
       }
 
-
       const buildings =
-        await Building.find(
-          query
-        )
+        await Building.find(query)
           .sort({
             updatedAt: -1,
           })
           .lean();
 
-
-      return res.json(
-        buildings
+      console.log(
+        "🏢 Buildings returned:",
+        buildings.length
       );
 
+      return res.json(buildings);
     } catch (error) {
-
       console.error(
         "Error fetching buildings:",
         error
       );
 
-
       return res.status(500).json({
         success: false,
         error:
-          error.message,
+          "Unable to load buildings right now. Please try again.",
       });
     }
   }
 );
 
-
 /*
 ============================================================
 GET /api/buildings/dashboard
-
-PUBLIC / OPTIONAL AUTH
-
-Logged in:
-    own + public
+============================================================
 
 Anonymous:
-    public only
+    PUBLIC buildings only
+
+Logged in:
+    ONLY OWN buildings
+
+IMPORTANT:
+    Public buildings are NOT included in another user's
+    dashboard.
+
+    Public QR/navigation access remains available through
+    individual endpoints.
 ============================================================
 */
 
@@ -234,83 +248,97 @@ router.get(
   "/dashboard",
   optionalProtect,
   async (req, res) => {
-
     try {
-
-      const userId =
-        getUserId(req);
-
+      const userId = getUserId(req);
 
       let query;
 
-
       if (userId) {
+        /*
+        ====================================================
+        AUTHENTICATED DASHBOARD
+        ====================================================
+
+        OWNER ONLY.
+
+        Support:
+          owner
+          userId
+        ====================================================
+        */
 
         query = {
           $or: [
             {
-              isPublic: true,
+              owner: userId,
             },
-
             {
-              owner:
-                userId,
+              userId: userId,
             },
           ],
         };
 
+        console.log(
+          "🔐 BUILDING DASHBOARD AUTHORIZATION",
+          {
+            userId,
+            rule: "OWNER_ONLY",
+          }
+        );
       } else {
+        /*
+        ====================================================
+        ANONYMOUS
+        ====================================================
+        */
 
         query = {
           isPublic: true,
         };
+
+        console.log(
+          "🌐 PUBLIC BUILDING DASHBOARD ACCESS",
+          {
+            rule: "PUBLIC_ONLY",
+          }
+        );
       }
 
-
       const buildings =
-        await Building.find(
-          query
-        )
+        await Building.find(query)
           .sort({
             updatedAt: -1,
           })
           .lean();
-
 
       const buildingIds =
         buildings.map(
           (b) => b._id
         );
 
-
       const [
         collFloors,
         collRooms,
         collConnections,
       ] = await Promise.all([
-
         Floor.countDocuments({
           buildingId: {
-            $in:
-              buildingIds,
+            $in: buildingIds,
           },
         }),
 
         Room.countDocuments({
           buildingId: {
-            $in:
-              buildingIds,
+            $in: buildingIds,
           },
         }),
 
         Connection.countDocuments({
           buildingId: {
-            $in:
-              buildingIds,
+            $in: buildingIds,
           },
         }),
       ]);
-
 
       const embeddedFloors =
         buildings.reduce(
@@ -320,7 +348,6 @@ router.get(
           0
         );
 
-
       const embeddedRooms =
         buildings.reduce(
           (acc, b) =>
@@ -328,7 +355,6 @@ router.get(
             (b.rooms?.length || 0),
           0
         );
-
 
       const embeddedConnections =
         buildings.reduce(
@@ -342,7 +368,6 @@ router.get(
           0
         );
 
-
       const draftsCount =
         buildings.filter(
           (b) =>
@@ -351,14 +376,12 @@ router.get(
             b.isDraft
         ).length;
 
-
       const publishedCount =
         buildings.filter(
           (b) =>
             b.status === "published" ||
             b.isPublished
         ).length;
-
 
       const archivedCount =
         buildings.filter(
@@ -367,11 +390,8 @@ router.get(
             b.isArchived
         ).length;
 
-
       return res.json({
-
         metrics: {
-
           totalBuildings:
             buildings.length,
 
@@ -408,24 +428,20 @@ router.get(
         maps:
           buildings,
       });
-
     } catch (error) {
-
       console.error(
         "Dashboard error:",
         error
       );
 
-
       return res.status(500).json({
         success: false,
         error:
-          error.message,
+          "Unable to load the building dashboard right now. Please try again.",
       });
     }
   }
 );
-
 
 /*
 ============================================================
@@ -445,16 +461,16 @@ router.post(
   "/",
   protect,
   async (req, res) => {
-
     try {
+      const userId = getUserId(req);
 
-      const userId =
-        getUserId(req);
+      /*
+      Create a copy instead of modifying req.body directly.
+      */
 
-
-      const mapData =
-        req.body || {};
-
+      const mapData = {
+        ...(req.body || {}),
+      };
 
       /*
       NEVER TRUST FRONTEND OWNER
@@ -463,12 +479,10 @@ router.post(
       delete mapData.owner;
       delete mapData.userId;
 
-
       const buildingIdKey =
         mapData.buildingId ||
         mapData.id ||
         mapData._id;
-
 
       const payload = {
         ...mapData,
@@ -492,55 +506,38 @@ router.post(
           ),
 
         floors:
-          Array.isArray(
-            mapData.floors
-          )
+          Array.isArray(mapData.floors)
             ? mapData.floors
             : [],
 
         rooms:
-          Array.isArray(
-            mapData.rooms
-          )
+          Array.isArray(mapData.rooms)
             ? mapData.rooms
             : [],
 
         waypoints:
-          Array.isArray(
-            mapData.waypoints
-          )
+          Array.isArray(mapData.waypoints)
             ? mapData.waypoints
-            : Array.isArray(
-                mapData.nodes
-              )
+            : Array.isArray(mapData.nodes)
               ? mapData.nodes
               : [],
 
         connections:
-          Array.isArray(
-            mapData.connections
-          )
+          Array.isArray(mapData.connections)
             ? mapData.connections
-            : Array.isArray(
-                mapData.edges
-              )
+            : Array.isArray(mapData.edges)
               ? mapData.edges
               : [],
 
         boundaries:
-          Array.isArray(
-            mapData.boundaries
-          )
+          Array.isArray(mapData.boundaries)
             ? mapData.boundaries
             : [],
 
-        owner:
-          userId,
+        owner: userId,
 
-        updatedAt:
-          new Date(),
+        updatedAt: new Date(),
       };
-
 
       /*
       ======================================================
@@ -549,19 +546,15 @@ router.post(
       */
 
       if (buildingIdKey) {
-
         let query;
-
 
         if (
           isObjectId(
             String(buildingIdKey)
           )
         ) {
-
           query = {
             $and: [
-
               {
                 $or: [
                   {
@@ -586,17 +579,22 @@ router.post(
               },
 
               {
-                owner:
-                  userId,
+                $or: [
+                  {
+                    owner:
+                      userId,
+                  },
+                  {
+                    userId:
+                      userId,
+                  },
+                ],
               },
             ],
           };
-
         } else {
-
           query = {
             $and: [
-
               {
                 $or: [
                   {
@@ -616,55 +614,52 @@ router.post(
               },
 
               {
-                owner:
-                  userId,
+                $or: [
+                  {
+                    owner:
+                      userId,
+                  },
+                  {
+                    userId:
+                      userId,
+                  },
+                ],
               },
             ],
           };
         }
 
-
         const building =
           await Building.findOneAndUpdate(
             query,
-
             {
-              $set:
-                payload,
+              $set: payload,
             },
-
             {
               new: true,
               runValidators: true,
             }
           );
 
-
         if (!building) {
-
           return res.status(404).json({
             success: false,
-
             error:
               "Building not found or access denied",
           });
         }
-
 
         console.log(
           "✅ Building updated by owner:",
           userId
         );
 
-
         return res.json({
-
           success: true,
 
           building,
 
-          map:
-            building,
+          map: building,
 
           rooms:
             building.rooms ||
@@ -684,7 +679,6 @@ router.post(
         });
       }
 
-
       /*
       ======================================================
       CREATE
@@ -693,13 +687,10 @@ router.post(
 
       const building =
         await Building.create({
-
           ...payload,
 
-          owner:
-            userId,
+          owner: userId,
         });
-
 
       console.log(
         "✅ New building created:",
@@ -708,15 +699,12 @@ router.post(
         userId
       );
 
-
       return res.status(201).json({
-
         success: true,
 
         building,
 
-        map:
-          building,
+        map: building,
 
         rooms:
           building.rooms ||
@@ -734,24 +722,20 @@ router.post(
           building.floors ||
           [],
       });
-
     } catch (error) {
-
       console.error(
         "❌ Error saving building:",
         error
       );
 
-
       return res.status(400).json({
         success: false,
         error:
-          error.message,
+          "Unable to save the building. Please check your data and try again.",
       });
     }
   }
 );
-
 
 /*
 ============================================================
@@ -765,12 +749,8 @@ router.post(
   "/create",
   protect,
   async (req, res) => {
-
     try {
-
-      const userId =
-        getUserId(req);
-
+      const userId = getUserId(req);
 
       const {
         name,
@@ -780,16 +760,13 @@ router.post(
         totalFloors,
       } = req.body;
 
-
       const floorCount =
         Number(totalFloors) > 0
           ? Number(totalFloors)
           : 1;
 
-
       const newBuilding =
         await Building.create({
-
           name:
             name ||
             "Untitled Map",
@@ -819,20 +796,15 @@ router.post(
             false,
         });
 
-
-      const floorPromises =
-        [];
-
+      const floorPromises = [];
 
       for (
         let i = 0;
         i < floorCount;
         i++
       ) {
-
         floorPromises.push(
           Floor.create({
-
             buildingId:
               newBuilding._id,
 
@@ -847,11 +819,9 @@ router.post(
         );
       }
 
-
       await Promise.all(
         floorPromises
       );
-
 
       console.log(
         "✅ Building created:",
@@ -860,32 +830,26 @@ router.post(
         userId
       );
 
-
       return res.status(201).json({
-
         success: true,
 
         building:
           newBuilding,
       });
-
     } catch (error) {
-
       console.error(
         "❌ Error creating building:",
         error
       );
 
-
       return res.status(400).json({
         success: false,
         error:
-          error.message,
+          "Unable to create the building. Please check your details and try again.",
       });
     }
   }
 );
-
 
 /*
 ============================================================
@@ -905,16 +869,12 @@ router.get(
   "/:id",
   optionalProtect,
   async (req, res) => {
-
     try {
-
       const identifier =
         req.params.id;
 
-
       const userId =
         getUserId(req);
-
 
       /*
       ======================================================
@@ -925,7 +885,6 @@ router.get(
       const map =
         await Map.findOne({
           $or: [
-
             {
               buildingId:
                 identifier,
@@ -947,9 +906,7 @@ router.get(
           ],
         }).lean();
 
-
       if (map) {
-
         const isOwner =
           sameId(
             map.userId,
@@ -960,16 +917,13 @@ router.get(
             userId
           );
 
-
         const isPublic =
           map.isPublic === true;
-
 
         if (
           !isPublic &&
           !isOwner
         ) {
-
           return res.status(404).json({
             success: false,
             error:
@@ -977,9 +931,7 @@ router.get(
           });
         }
 
-
         return res.json({
-
           ...map,
 
           floors:
@@ -1006,7 +958,6 @@ router.get(
         });
       }
 
-
       /*
       ======================================================
       SECOND: BUILDING COLLECTION
@@ -1018,16 +969,13 @@ router.get(
           identifier
         );
 
-
       if (!building) {
-
         return res.status(404).json({
           success: false,
           error:
             "Building not found",
         });
       }
-
 
       const isOwner =
         buildingBelongsToUser(
@@ -1035,23 +983,19 @@ router.get(
           userId
         );
 
-
       const isPublic =
         building.isPublic === true;
-
 
       if (
         !isPublic &&
         !isOwner
       ) {
-
         return res.status(404).json({
           success: false,
           error:
             "Building not found",
         });
       }
-
 
       /*
       ======================================================
@@ -1064,7 +1008,6 @@ router.get(
         rooms,
         connections,
       ] = await Promise.all([
-
         Floor.find({
           buildingId:
             building._id,
@@ -1085,9 +1028,7 @@ router.get(
         }).lean(),
       ]);
 
-
       return res.json({
-
         ...building,
 
         floors:
@@ -1116,24 +1057,20 @@ router.get(
                 []
               ),
       });
-
     } catch (error) {
-
       console.error(
         "❌ Error fetching building:",
         error
       );
 
-
       return res.status(500).json({
         success: false,
         error:
-          error.message,
+          "Unable to load this building right now. Please try again.",
       });
     }
   }
 );
-
 
 /*
 ============================================================
@@ -1149,32 +1086,25 @@ router.delete(
   "/:id",
   protect,
   async (req, res) => {
-
     try {
-
       const identifier =
         req.params.id;
 
-
       const userId =
         getUserId(req);
-
 
       const building =
         await findBuilding(
           identifier
         );
 
-
       if (!building) {
-
         return res.status(404).json({
           success: false,
           error:
             "Building not found",
         });
       }
-
 
       /*
       IMPORTANT:
@@ -1187,14 +1117,12 @@ router.delete(
           userId
         )
       ) {
-
         return res.status(403).json({
           success: false,
           error:
             "You do not have permission to delete this building",
         });
       }
-
 
       /*
       ======================================================
@@ -1203,7 +1131,6 @@ router.delete(
       */
 
       await Promise.all([
-
         Building.deleteOne({
           _id:
             building._id,
@@ -1211,7 +1138,6 @@ router.delete(
 
         Map.deleteMany({
           $or: [
-
             {
               buildingId:
                 building.buildingId,
@@ -1245,38 +1171,31 @@ router.delete(
         }),
       ]);
 
-
       console.log(
         "🗑️ Building deleted by owner:",
         userId
       );
 
-
       return res.json({
-
         success: true,
 
         message:
           "Building map and sub-resources deleted successfully",
       });
-
     } catch (error) {
-
       console.error(
         "❌ Error deleting building:",
         error
       );
 
-
       return res.status(500).json({
         success: false,
         error:
-          error.message,
+          "Unable to delete the building right now. Please try again.",
       });
     }
   }
 );
-
 
 /*
 ============================================================
@@ -1294,16 +1213,12 @@ router.post(
   "/:id/navigate",
   optionalProtect,
   async (req, res) => {
-
     try {
-
       const buildingId =
         req.params.id;
 
-
       const userId =
         getUserId(req);
-
 
       const {
         startRoomId,
@@ -1311,7 +1226,6 @@ router.post(
         startWaypointId,
         targetWaypointId,
       } = req.body;
-
 
       /*
       ======================================================
@@ -1322,7 +1236,6 @@ router.post(
       const map =
         await Map.findOne({
           $or: [
-
             {
               buildingId:
                 buildingId,
@@ -1344,9 +1257,7 @@ router.post(
           ],
         }).lean();
 
-
       if (map) {
-
         const isOwner =
           sameId(
             map.userId,
@@ -1357,16 +1268,13 @@ router.post(
             userId
           );
 
-
         const isPublic =
           map.isPublic === true;
-
 
         if (
           !isPublic &&
           !isOwner
         ) {
-
           return res.status(404).json({
             success: false,
             error:
@@ -1374,41 +1282,29 @@ router.post(
           });
         }
 
-
         const rooms =
-          Array.isArray(
-            map.rooms
-          )
+          Array.isArray(map.rooms)
             ? map.rooms
             : [];
-
 
         const connections =
           Array.isArray(
             map.connections
           ) &&
           map.connections.length > 0
-
             ? map.connections
-
-            : Array.isArray(
-                map.edges
-              )
+            : Array.isArray(map.edges)
               ? map.edges
               : [];
-
 
         const waypoints =
           Array.isArray(
             map.waypoints
           )
             ? map.waypoints
-            : Array.isArray(
-                map.nodes
-              )
+            : Array.isArray(map.nodes)
               ? map.nodes
               : [];
-
 
         const startRoom =
           rooms.find(
@@ -1427,7 +1323,6 @@ router.post(
                 )
           );
 
-
         const targetRoom =
           rooms.find(
             (room) =>
@@ -1445,20 +1340,17 @@ router.post(
                 )
           );
 
-
         const actualStartWaypoint =
           startWaypointId ||
           startRoom?.waypointId ||
           startRoom?.waypoint ||
           startRoomId;
 
-
         const actualTargetWaypoint =
           targetWaypointId ||
           targetRoom?.waypointId ||
           targetRoom?.waypoint ||
           targetRoomId;
-
 
         /*
         ====================================================
@@ -1468,17 +1360,14 @@ router.post(
 
         const graph = {};
 
-
         connections.forEach(
           (connection) => {
-
             const from =
               String(
                 connection.from ||
                 connection.source ||
                 ""
               );
-
 
             const to =
               String(
@@ -1487,24 +1376,19 @@ router.post(
                 ""
               );
 
-
             if (!from || !to) {
               return;
             }
-
 
             if (!graph[from]) {
               graph[from] = [];
             }
 
-
             if (!graph[to]) {
               graph[to] = [];
             }
 
-
             graph[from].push({
-
               node:
                 to,
 
@@ -1514,9 +1398,7 @@ router.post(
                 ) || 1,
             });
 
-
             graph[to].push({
-
               node:
                 from,
 
@@ -1528,7 +1410,6 @@ router.post(
           }
         );
 
-
         /*
         ====================================================
         DIJKSTRA
@@ -1539,12 +1420,10 @@ router.post(
         const previous = {};
         const visited = new Set();
 
-
         Object.keys(
           graph
         ).forEach(
           (node) => {
-
             distances[node] =
               Infinity;
 
@@ -1553,14 +1432,12 @@ router.post(
           }
         );
 
-
         if (
           !Object.prototype.hasOwnProperty.call(
             distances,
             actualStartWaypoint
           )
         ) {
-
           distances[
             actualStartWaypoint
           ] = Infinity;
@@ -1574,14 +1451,12 @@ router.post(
           ] = [];
         }
 
-
         if (
           !Object.prototype.hasOwnProperty.call(
             distances,
             actualTargetWaypoint
           )
         ) {
-
           distances[
             actualTargetWaypoint
           ] = Infinity;
@@ -1594,30 +1469,24 @@ router.post(
             actualTargetWaypoint
           ] = [];
         }
-
 
         distances[
           actualStartWaypoint
         ] = 0;
 
-
         while (true) {
-
           let current = null;
           let smallest = Infinity;
-
 
           Object.keys(
             distances
           ).forEach(
             (node) => {
-
               if (
                 !visited.has(node) &&
                 distances[node] <
                   smallest
               ) {
-
                 smallest =
                   distances[node];
 
@@ -1627,13 +1496,11 @@ router.post(
             }
           );
 
-
           if (
             current === null
           ) {
             break;
           }
-
 
           if (
             current ===
@@ -1642,24 +1509,19 @@ router.post(
             break;
           }
 
-
           visited.add(
             current
           );
-
 
           const neighbours =
             graph[current] ||
             [];
 
-
           neighbours.forEach(
             (edge) => {
-
               const newDistance =
                 distances[current] +
                 edge.distance;
-
 
               if (
                 newDistance <
@@ -1667,7 +1529,6 @@ router.post(
                   edge.node
                 ]
               ) {
-
                 distances[
                   edge.node
                 ] =
@@ -1682,7 +1543,6 @@ router.post(
           );
         }
 
-
         /*
         ====================================================
         RECONSTRUCT PATH
@@ -1691,31 +1551,24 @@ router.post(
 
         const path = [];
 
-
         let current =
           actualTargetWaypoint;
-
 
         if (
           current ===
           actualStartWaypoint
         ) {
-
           path.push(
             current
           );
-
         } else {
-
           while (
             current !== null &&
             current !== undefined
           ) {
-
             path.unshift(
               current
             );
-
 
             if (
               current ===
@@ -1724,12 +1577,10 @@ router.post(
               break;
             }
 
-
             current =
               previous[current];
           }
         }
-
 
         /*
         ====================================================
@@ -1750,9 +1601,7 @@ router.post(
               actualTargetWaypoint
             );
 
-
         if (!hasPath) {
-
           return res.status(404).json({
             success: false,
 
@@ -1760,7 +1609,6 @@ router.post(
               "No connections are available between the selected waypoints.",
           });
         }
-
 
         /*
         ====================================================
@@ -1771,7 +1619,6 @@ router.post(
         const routeWaypoints =
           path.map(
             (waypointId) => {
-
               return (
                 waypoints.find(
                   (wp) =>
@@ -1790,9 +1637,7 @@ router.post(
             }
           );
 
-
         return res.json({
-
           success: true,
 
           distance:
@@ -1822,7 +1667,6 @@ router.post(
         });
       }
 
-
       /*
       ======================================================
       FALLBACK TO BUILDING
@@ -1834,16 +1678,13 @@ router.post(
           buildingId
         );
 
-
       if (!building) {
-
         return res.status(404).json({
           success: false,
           error:
             "Building not found",
         });
       }
-
 
       const isOwner =
         buildingBelongsToUser(
@@ -1851,16 +1692,13 @@ router.post(
           userId
         );
 
-
       const isPublic =
         building.isPublic === true;
-
 
       if (
         !isPublic &&
         !isOwner
       ) {
-
         return res.status(404).json({
           success: false,
           error:
@@ -1868,22 +1706,18 @@ router.post(
         });
       }
 
-
       let rooms =
         building.rooms ||
         [];
-
 
       let connections =
         building.connections ||
         building.edges ||
         [];
 
-
       if (
         connections.length === 0
       ) {
-
         connections =
           await Connection.find({
             buildingId:
@@ -1891,18 +1725,15 @@ router.post(
           }).lean();
       }
 
-
       if (
         rooms.length === 0
       ) {
-
         rooms =
           await Room.find({
             buildingId:
               building._id,
           }).lean();
       }
-
 
       const result =
         findShortestPath(
@@ -1912,31 +1743,25 @@ router.post(
           targetRoomId
         );
 
-
       return res.json({
-
         success: true,
 
         ...result,
       });
-
     } catch (error) {
-
       console.error(
         "❌ Navigation error:",
         error
       );
 
-
       return res.status(500).json({
         success: false,
 
         error:
-          error.message,
+          "Unable to calculate the route right now. Please try again.",
       });
     }
   }
 );
-
 
 module.exports = router;

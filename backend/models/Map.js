@@ -7,11 +7,8 @@ const mapSchema = new mongoose.Schema(
     OWNER
     ========================================================
 
-    userId is kept because existing MapEditor/database
-    data may already use it.
-
-    owner is also kept for compatibility with Building.
-    ========================================================
+    Both userId and owner are intentionally preserved for
+    compatibility with existing UniversalNav data.
     */
 
     userId: {
@@ -27,7 +24,6 @@ const mapSchema = new mongoose.Schema(
       index: true,
     },
 
-
     /*
     ========================================================
     MAP IDENTIFICATION
@@ -39,33 +35,41 @@ const mapSchema = new mongoose.Schema(
       required: true,
       unique: true,
       index: true,
+      trim: true,
     },
 
     id: {
       type: String,
       index: true,
+      trim: true,
     },
 
     title: {
       type: String,
       default: "Untitled Map",
+      trim: true,
+      maxlength: 200,
     },
 
     name: {
       type: String,
       default: "Untitled Map",
+      trim: true,
+      maxlength: 200,
     },
 
     description: {
       type: String,
       default: "",
+      maxlength: 2000,
     },
 
     category: {
       type: String,
       default: "Other",
+      trim: true,
+      maxlength: 100,
     },
-
 
     /*
     ========================================================
@@ -94,77 +98,105 @@ const mapSchema = new mongoose.Schema(
       default: false,
     },
 
-
     /*
     ========================================================
     FLOOR INFORMATION
     ========================================================
+
+    IMPORTANT:
+    Keep floors flexible.
+
+    UniversalNav supports multi-floor navigation,
+    stairs, elevators and other floor interconnections.
     */
 
     totalFloors: {
       type: Number,
       default: 1,
+      min: 1,
     },
 
     floors: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
 
     floorSize: {
       type: mongoose.Schema.Types.Mixed,
-      default: {
+      default: () => ({
         width: 1100,
         height: 750,
-      },
+      }),
     },
-
 
     /*
     ========================================================
     ROOMS
     ========================================================
+
+    Kept flexible for MapEditor room structures.
     */
 
     rooms: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
     WAYPOINTS / NODES
     ========================================================
+
+    These remain flexible because the navigation system
+    may contain different node types and metadata.
+
+    Examples can include:
+    - normal waypoints
+    - entrances
+    - stairs
+    - elevators
+    - emergency exits
+    - accessibility nodes
     */
 
     waypoints: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
 
     nodes: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
     CONNECTIONS / EDGES
     ========================================================
+
+    DO NOT REMOVE.
+
+    These are critical to routing and floor-to-floor
+    navigation.
+
+    Connections may represent relationships between:
+    - rooms
+    - waypoints
+    - nodes
+    - stairs
+    - elevators
+    - floors
     */
 
     connections: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
 
     edges: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
@@ -174,19 +206,24 @@ const mapSchema = new mongoose.Schema(
 
     boundaries: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
+
+    /*
+    ========================================================
+    BLOCKED NAVIGATION ELEMENTS
+    ========================================================
+    */
 
     blockedEdges: {
       type: [mongoose.Schema.Types.Mixed],
-      default: [],
+      default: () => [],
     },
 
     blockedNodeIds: {
       type: [String],
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
@@ -196,53 +233,77 @@ const mapSchema = new mongoose.Schema(
 
     accessibilityPrefs: {
       type: mongoose.Schema.Types.Mixed,
-      default: {
+      default: () => ({
         avoidStairs: false,
         avoidNarrowCorridors: false,
         minimizeWalking: false,
         avoidElevators: false,
         wheelchairAccessible: false,
-      },
+      }),
     },
-
 
     /*
     ========================================================
     GENERAL MAP DATA
     ========================================================
+
+    These flexible fields are deliberately preserved.
+
+    MapEditor may store additional configuration,
+    navigation information, floor information,
+    simulation state or other map metadata here.
     */
 
     metadata: {
       type: mongoose.Schema.Types.Mixed,
-      default: {},
+      default: () => ({}),
     },
 
     settings: {
       type: mongoose.Schema.Types.Mixed,
-      default: {},
+      default: () => ({}),
     },
 
     /*
-    Preserve additional MapEditor data.
+    ========================================================
+    MAPEDITOR DATA
+    ========================================================
+
+    IMPORTANT:
+    Do not remove or restrict this field.
+
+    It exists specifically to preserve additional
+    MapEditor data that is not represented by the
+    top-level fields above.
     */
 
     data: {
       type: mongoose.Schema.Types.Mixed,
-      default: {},
+      default: () => ({}),
     },
   },
+
   {
     timestamps: true,
 
     /*
-    IMPORTANT:
-    Existing MapEditor fields are not silently removed.
+    ========================================================
+    IMPORTANT COMPATIBILITY SETTING
+    ========================================================
+
+    Keep strict:false.
+
+    Existing UniversalNav MapEditor data may contain
+    additional fields that are not explicitly represented
+    in this schema.
+
+    This prevents those fields from being silently removed
+    or rejected during updates.
     */
 
     strict: false,
   }
 );
-
 
 /*
 ============================================================
@@ -250,12 +311,20 @@ INDEXES
 ============================================================
 */
 
+// Ownership indexes are already provided by the fields.
+// Keeping explicit indexes here would be redundant.
+
 // mapSchema.index({ userId: 1 });
 // mapSchema.index({ owner: 1 });
 // mapSchema.index({ buildingId: 1 });
-mapSchema.index({ status: 1 });
-mapSchema.index({ isPublic: 1 });
 
+mapSchema.index({
+  status: 1,
+});
+
+mapSchema.index({
+  isPublic: 1,
+});
 
 module.exports = mongoose.model(
   "Map",

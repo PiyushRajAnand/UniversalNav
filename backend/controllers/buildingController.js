@@ -1,15 +1,23 @@
+const mongoose = require("mongoose");
 const Building = require("../models/Building");
 
 /*
 ====================================================
 GET ALL BUILDINGS
 ====================================================
+
+Public read operation.
+
+Supports:
+- search
+- category
+- isPublic
+
+Authentication is not required.
+====================================================
 */
 
-exports.getBuildings = async (
-  req,
-  res
-) => {
+exports.getBuildings = async (req, res, next) => {
   try {
     const {
       search,
@@ -20,65 +28,83 @@ exports.getBuildings = async (
     const query = {};
 
     /*
-    Search by title OR name
+    ----------------------------------------------------
+    SEARCH
+    ----------------------------------------------------
+    Search by title OR name.
     */
 
-    if (search) {
+    if (search && search.trim()) {
+      const safeSearch = search.trim();
+
       query.$or = [
         {
           title: {
-            $regex: search,
+            $regex: safeSearch,
             $options: "i",
           },
         },
         {
           name: {
-            $regex: search,
+            $regex: safeSearch,
             $options: "i",
           },
         },
       ];
     }
 
-    if (category) {
-      query.category =
-        category;
+    /*
+    ----------------------------------------------------
+    CATEGORY
+    ----------------------------------------------------
+    */
+
+    if (category && category.trim()) {
+      query.category = category.trim();
     }
 
-    if (
-      isPublic !== undefined
-    ) {
-      query.isPublic =
-        isPublic === "true";
-    }
+    /*
+    ----------------------------------------------------
+    PUBLIC FILTER
+    ----------------------------------------------------
+    */
 
-    const buildings =
-      await Building.find(query)
-        .populate(
-          "creator",
-          "name email avatar"
-        )
-        .sort({
-          createdAt: -1,
+    if (isPublic !== undefined) {
+      if (
+        isPublic !== "true" &&
+        isPublic !== "false"
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid isPublic value.",
         });
+      }
 
-    res.status(200).json(
-      buildings
-    );
+      query.isPublic = isPublic === "true";
+    }
 
+    /*
+    ----------------------------------------------------
+    FETCH
+    ----------------------------------------------------
+    */
+
+    const buildings = await Building.find(query)
+      .sort({
+        createdAt: -1,
+      });
+
+    return res.status(200).json({
+      success: true,
+      buildings,
+    });
   } catch (error) {
     console.error(
       "Error fetching buildings:",
       error
     );
 
-    res.status(500).json({
-      message:
-        "Error fetching buildings",
-
-      error:
-        error.message,
-    });
+    return next(error);
   }
 };
 
@@ -86,13 +112,51 @@ exports.getBuildings = async (
 ====================================================
 CREATE BUILDING
 ====================================================
+
+Login required.
+
+The authenticated user becomes the owner.
+
+IMPORTANT:
+The client cannot choose the owner.
+====================================================
 */
 
 exports.createBuilding = async (
   req,
-  res
+  res,
+  next
 ) => {
   try {
+    /*
+    ----------------------------------------------------
+    AUTHENTICATION
+    ----------------------------------------------------
+    */
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Login required.",
+      });
+    }
+
+    const userId =
+      req.user._id || req.user.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "Login required.",
+      });
+    }
+
+    /*
+    ----------------------------------------------------
+    REQUEST DATA
+    ----------------------------------------------------
+    */
+
     const {
       title,
       name,
@@ -102,72 +166,67 @@ exports.createBuilding = async (
     } = req.body;
 
     /*
-    Login required
+    ----------------------------------------------------
+    CREATE BUILDING
+    ----------------------------------------------------
+
+    OWNER ALWAYS COMES FROM req.user.
+
+    Never trust an owner/user ID supplied by
+    the frontend.
     */
 
-    if (!req.user) {
-      return res.status(401).json({
-        message:
-          "Login required",
-      });
-    }
+    const building = new Building({
+      title:
+        title?.trim() ||
+        name?.trim() ||
+        "Untitled Building",
 
-    const userId =
-      req.user.id ||
-      req.user._id;
+      name:
+        name?.trim() ||
+        title?.trim() ||
+        "Untitled Building",
 
-    const building =
-      new Building({
-        title:
-          title ||
-          name ||
-          "Untitled Map",
+      description:
+        typeof description === "string"
+          ? description.trim()
+          : "",
 
-        name:
-          name ||
-          title ||
-          "Untitled Map",
+      category:
+        typeof category === "string" &&
+        category.trim()
+          ? category.trim()
+          : "Other",
 
-        description,
+      isPublic:
+        typeof isPublic === "boolean"
+          ? isPublic
+          : true,
 
-        category:
-          category ||
-          "Other",
+      owner: userId,
 
-        isPublic:
-          isPublic !== undefined
-            ? isPublic
-            : true,
-
-        creator:
-          userId,
-
-        status:
-          "draft",
-
-        updatedAt:
-          new Date(),
-      });
+      status: "draft",
+    });
 
     await building.save();
 
-    res.status(201).json(
-      building
-    );
+    /*
+    ----------------------------------------------------
+    SUCCESS
+    ----------------------------------------------------
+    */
 
+    return res.status(201).json({
+      success: true,
+      building,
+    });
   } catch (error) {
     console.error(
       "Error creating building:",
       error
     );
 
-    res.status(400).json({
-      message:
-        "Error creating building",
-
-      error:
-        error.message,
-    });
+    return next(error);
   }
 };
 
@@ -175,19 +234,65 @@ exports.createBuilding = async (
 ====================================================
 DELETE BUILDING
 ====================================================
+
+Only the building owner or an Admin may delete it.
+
+Authentication and authorization are enforced
+server-side.
+====================================================
 */
 
 exports.deleteBuilding = async (
   req,
-  res
+  res,
+  next
 ) => {
   try {
+    /*
+    ----------------------------------------------------
+    AUTHENTICATION
+    ----------------------------------------------------
+    */
+
     if (!req.user) {
       return res.status(401).json({
-        message:
-          "Login required",
+        success: false,
+        error: "Login required.",
       });
     }
+
+    const userId =
+      req.user._id || req.user.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "Login required.",
+      });
+    }
+
+    /*
+    ----------------------------------------------------
+    VALIDATE BUILDING ID
+    ----------------------------------------------------
+    */
+
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        req.params.id
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid building ID.",
+      });
+    }
+
+    /*
+    ----------------------------------------------------
+    FIND BUILDING
+    ----------------------------------------------------
+    */
 
     const building =
       await Building.findById(
@@ -196,45 +301,60 @@ exports.deleteBuilding = async (
 
     if (!building) {
       return res.status(404).json({
-        message:
-          "Building not found",
+        success: false,
+        error: "Building not found.",
       });
     }
 
     /*
-    Check owner only if creator exists.
+    ----------------------------------------------------
+    AUTHORIZATION
+    ----------------------------------------------------
+
+    Admin:
+        allowed
+
+    Owner:
+        allowed
+
+    Everyone else:
+        forbidden
     */
 
-    if (
-      building.creator &&
-      building.creator.toString() !==
-        req.user.id.toString()
-    ) {
+    const isAdmin =
+      req.user.role === "Admin";
+
+    const isOwner =
+      building.owner &&
+      building.owner.toString() ===
+        userId.toString();
+
+    if (!isAdmin && !isOwner) {
       return res.status(403).json({
-        message:
-          "Not authorized",
+        success: false,
+        error: "Not authorized.",
       });
     }
 
+    /*
+    ----------------------------------------------------
+    DELETE
+    ----------------------------------------------------
+    */
+
     await building.deleteOne();
 
-    res.status(200).json({
+    return res.status(200).json({
+      success: true,
       message:
-        "Building deleted successfully",
+        "Building deleted successfully.",
     });
-
   } catch (error) {
     console.error(
       "Error deleting building:",
       error
     );
 
-    res.status(500).json({
-      message:
-        "Error deleting building",
-
-      error:
-        error.message,
-    });
+    return next(error);
   }
 };

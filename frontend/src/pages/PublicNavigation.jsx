@@ -216,6 +216,13 @@ export default function PublicNavigation() {
     useState(true);
 
   // ==============================================================
+  // RESPONSIVE MAP
+  // ==============================================================
+
+  const mapViewportRef = useRef(null);
+  const [mapScale, setMapScale] = useState(1);
+
+  // ==============================================================
   // SIMULATION REFS
   // ==============================================================
 
@@ -426,6 +433,32 @@ export default function PublicNavigation() {
         ) || DEFAULT_FLOOR_SIZE.height
     };
   }, [map]);
+
+  // Keep the public map fully visible on phones while preserving
+  // the original coordinate system used by the navigation engine.
+  useEffect(() => {
+    const viewport = mapViewportRef.current;
+    if (!viewport) return;
+
+    const updateMapScale = () => {
+      const availableWidth = viewport.clientWidth;
+      if (!availableWidth) return;
+
+      const nextScale = Math.min(1, availableWidth / floorSize.width);
+      setMapScale(Number(nextScale.toFixed(4)));
+    };
+
+    updateMapScale();
+
+    const observer = new ResizeObserver(updateMapScale);
+    observer.observe(viewport);
+    window.addEventListener("resize", updateMapScale);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateMapScale);
+    };
+  }, [floorSize.width]);
 
   // ==============================================================
   // CURRENT FLOOR DATA
@@ -2516,6 +2549,7 @@ export default function PublicNavigation() {
 
   return (
     <div
+      className="universal-public-nav"
       style={{
         minHeight:
           "100vh",
@@ -2523,7 +2557,7 @@ export default function PublicNavigation() {
           "#07152f",
         color: "white",
         padding:
-          "25px"
+          "clamp(12px, 3vw, 25px)"
       }}
     >
       {/* ========================================================
@@ -2531,6 +2565,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="public-nav-hero"
         style={{
           marginBottom: 25
         }}
@@ -2559,6 +2594,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="route-panel public-glass-panel route-search-card"
         style={{
           background:
             "#101d3b",
@@ -2745,6 +2781,7 @@ export default function PublicNavigation() {
         ====================================================== */}
 
         <div
+          className="accessibility-grid"
           style={{
             display:
               "flex",
@@ -2861,6 +2898,7 @@ export default function PublicNavigation() {
         {navigationPath.length >
           0 && (
           <div
+            className="route-result-card"
             style={{
               marginTop: 20,
               padding: 18,
@@ -2927,6 +2965,7 @@ export default function PublicNavigation() {
             {routeOptions.length >
               0 && (
               <div
+                className="route-options"
                 style={{
                   display:
                     "flex",
@@ -3046,14 +3085,18 @@ export default function PublicNavigation() {
             {navigationPath.length >
               1 && (
               <div
+                className="simulation-card"
                 style={{
-                  marginTop: 18,
-                  paddingTop: 15,
-                  borderTop:
-                    "1px solid #334155"
+                  marginTop: 14,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "rgba(8,25,54,.7)",
+                  border:
+                    "1px solid rgba(71,85,105,.65)"
                 }}
               >
                 <div
+                  className="simulation-controls"
                   style={{
                     display:
                       "flex",
@@ -3082,7 +3125,7 @@ export default function PublicNavigation() {
                     }}
                     style={{
                       padding:
-                        "9px 15px",
+                        "7px 11px",
                       borderRadius:
                         8,
                       border:
@@ -3115,7 +3158,7 @@ export default function PublicNavigation() {
                     }}
                     style={{
                       padding:
-                        "9px 15px",
+                        "7px 11px",
                       borderRadius:
                         8,
                       border:
@@ -3142,7 +3185,7 @@ export default function PublicNavigation() {
                     }
                     style={{
                       padding:
-                        "8px",
+                        "6px 8px",
                       borderRadius:
                         7,
                       background:
@@ -3219,6 +3262,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="emergency-panel public-glass-panel"
         style={{
           background:
             emergencyMode
@@ -3363,6 +3407,7 @@ export default function PublicNavigation() {
         {emergencyMode &&
           emergencyExit && (
             <div
+              className="emergency-status-card"
               style={{
                 marginTop: 15,
                 padding: 15,
@@ -3413,6 +3458,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="floor-selector-card public-glass-panel"
         style={{
           background:
             "#101d3b",
@@ -3470,6 +3516,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="map-controls public-map-controls"
         style={{
           display:
             "flex",
@@ -3535,6 +3582,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="map-panel public-glass-panel public-map-card"
         style={{
           background:
             "#101d3b",
@@ -3542,33 +3590,43 @@ export default function PublicNavigation() {
           borderRadius: 15
         }}
       >
-        <h2>
-          {selectedFloor}{" "}
-          <span
-            style={{
-              fontSize: 14,
-              opacity: 0.7
-            }}
-          >
-            Read-only public view
-          </span>
-        </h2>
+        <div className="map-heading">
+          <h2>
+            {selectedFloor}{" "}
+            <span
+              style={{
+                fontSize: 14,
+                opacity: 0.7
+              }}
+            >
+              Read-only public view
+            </span>
+          </h2>
+        </div>
 
         <div
+          ref={mapViewportRef}
           style={{
             width:
               "100%",
             overflow:
-              "auto",
+              "hidden",
             background:
               "#081936",
             borderRadius:
               12,
             border:
-              "1px solid #234579"
+              "1px solid #234579",
+            minHeight:
+              floorSize.height * mapScale,
+            height:
+              floorSize.height * mapScale,
+            transition:
+              "height .2s ease"
           }}
         >
           <div
+            className="map-surface"
             style={{
               position:
                 "relative",
@@ -3583,7 +3641,11 @@ export default function PublicNavigation() {
               background:
                 "#081936",
               overflow:
-                "hidden"
+                "hidden",
+              transform:
+                `scale(${mapScale})`,
+              transformOrigin:
+                "top left"
             }}
           >
             {/* ==================================================
@@ -4300,6 +4362,7 @@ export default function PublicNavigation() {
       ======================================================== */}
 
       <div
+        className="public-stats-grid"
         style={{
           display:
             "grid",
@@ -4341,6 +4404,533 @@ export default function PublicNavigation() {
           }
         />
       </div>
+
+      <style>{`
+        .universal-public-nav,
+        .universal-public-nav * {
+          box-sizing: border-box;
+        }
+
+        .universal-public-nav {
+          min-height: 100vh;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          color: #0f172a !important;
+          background:
+            radial-gradient(circle at 8% 0%, rgba(37,99,235,.13), transparent 28%),
+            radial-gradient(circle at 96% 4%, rgba(14,165,233,.12), transparent 24%),
+            linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%) !important;
+        }
+
+        .public-nav-hero {
+          position: relative;
+          overflow: hidden;
+          padding: clamp(18px, 3vw, 28px);
+          border: 1px solid rgba(148,163,184,.25);
+          border-radius: 24px;
+          background:
+            radial-gradient(circle at 90% 15%, rgba(14,165,233,.20), transparent 25%),
+            linear-gradient(135deg, #ffffff 0%, #f3f8ff 58%, #edfaff 100%);
+          box-shadow: 0 18px 45px rgba(15,23,42,.07);
+        }
+
+        .public-nav-hero::after {
+          content: "";
+          position: absolute;
+          right: -80px;
+          bottom: -100px;
+          width: 260px;
+          height: 260px;
+          border-radius: 50%;
+          border: 38px solid rgba(37,99,235,.055);
+          pointer-events: none;
+        }
+
+        .universal-public-nav h1 {
+          position: relative;
+          z-index: 1;
+          margin: 0 0 6px !important;
+          font-size: clamp(1.8rem, 3.4vw, 2.8rem) !important;
+          line-height: 1.05;
+          font-weight: 850 !important;
+          letter-spacing: -.045em;
+          background: linear-gradient(100deg, #0f172a 0%, #2563eb 55%, #0891b2 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent !important;
+        }
+
+        .universal-public-nav h1 + div {
+          position: relative;
+          z-index: 1;
+          color: #64748b !important;
+          opacity: 1 !important;
+          font-size: .94rem;
+          font-weight: 600;
+        }
+
+        .public-glass-panel,
+        .map-panel {
+          background: rgba(255,255,255,.92) !important;
+          color: #0f172a !important;
+          border: 1px solid rgba(148,163,184,.27) !important;
+          box-shadow: 0 16px 40px rgba(15,23,42,.075), 0 2px 8px rgba(15,23,42,.035) !important;
+          backdrop-filter: blur(16px);
+        }
+
+        .route-search-card,
+        .public-map-card {
+          border-radius: 24px !important;
+        }
+
+        .route-search-card h2,
+        .map-panel h2,
+        .emergency-panel h2 {
+          color: #0f172a !important;
+          letter-spacing: -.025em;
+        }
+
+        .route-search-card h2 {
+          margin-top: 0 !important;
+          font-size: clamp(1.2rem, 2vw, 1.45rem) !important;
+        }
+
+        .universal-public-nav label {
+          color: #334155;
+        }
+
+        .universal-public-nav select {
+          background: #ffffff !important;
+          color: #0f172a !important;
+          border: 1px solid #cbd5e1 !important;
+          border-radius: 12px !important;
+          min-height: 46px;
+          box-shadow: 0 2px 8px rgba(15,23,42,.035);
+          outline: none;
+          transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+
+        .universal-public-nav select:focus {
+          border-color: #2563eb !important;
+          box-shadow: 0 0 0 4px rgba(37,99,235,.11) !important;
+        }
+
+        .universal-public-nav button {
+          border-radius: 12px !important;
+          transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+        }
+
+        .universal-public-nav button:not(:disabled):hover {
+          transform: translateY(-1px);
+          filter: brightness(1.02);
+          box-shadow: 0 9px 20px rgba(15,23,42,.11);
+        }
+
+        .universal-public-nav button:focus-visible,
+        .universal-public-nav select:focus-visible,
+        .universal-public-nav input:focus-visible {
+          outline: 3px solid rgba(37,99,235,.25) !important;
+          outline-offset: 2px;
+        }
+
+        .route-search-card > div:first-of-type button {
+          min-height: 46px;
+          background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+          box-shadow: 0 10px 24px rgba(37,99,235,.20);
+        }
+
+        .accessibility-grid {
+          padding-top: 2px;
+        }
+
+        .accessibility-grid label {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          min-height: 42px;
+          padding: 8px 12px;
+          border-radius: 12px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          color: #334155 !important;
+          font-size: 13px;
+          font-weight: 650;
+          cursor: pointer;
+          transition: background .18s ease, border-color .18s ease, transform .18s ease;
+        }
+
+        .accessibility-grid label:hover {
+          background: #eff6ff;
+          border-color: #bfdbfe;
+          transform: translateY(-1px);
+        }
+
+        .route-search-card input[type="checkbox"] {
+          width: 17px;
+          height: 17px;
+          accent-color: #2563eb;
+        }
+
+        .route-result-card {
+          background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%) !important;
+          color: #0f172a !important;
+          border: 1px solid #bfdbfe !important;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+        }
+
+        .route-result-card h3,
+        .route-result-card h4,
+        .route-result-card strong {
+          color: #0f172a !important;
+        }
+
+        .route-result-card > div:first-child > div > div {
+          color: #475569 !important;
+        }
+
+        .route-options {
+          gap: 9px !important;
+        }
+
+        .route-options button {
+          border-color: #bfdbfe !important;
+          color: #1e3a8a !important;
+          background: #ffffff !important;
+          font-weight: 650;
+        }
+
+        .route-options button:hover,
+        .route-options button[aria-pressed="true"] {
+          background: #dbeafe !important;
+        }
+
+        .simulation-card {
+          background: #ffffff !important;
+          color: #334155 !important;
+          border: 1px solid #dbe4ef !important;
+          box-shadow: 0 8px 20px rgba(15,23,42,.055);
+        }
+
+        .simulation-controls {
+          padding: 0 !important;
+        }
+
+        .simulation-controls button:first-child {
+          background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+          box-shadow: 0 6px 15px rgba(37,99,235,.16);
+        }
+
+        .simulation-controls button:nth-child(2) {
+          background: #f8fafc !important;
+          color: #334155 !important;
+          border: 1px solid #cbd5e1 !important;
+        }
+
+        .simulation-controls select {
+          min-width: 72px;
+          min-height: 36px !important;
+          background: #ffffff !important;
+          color: #0f172a !important;
+        }
+
+        .simulation-card input[type="range"] {
+          accent-color: #2563eb;
+          cursor: pointer;
+        }
+
+        .emergency-panel {
+          border-radius: 22px !important;
+          background: linear-gradient(135deg, #fff7f7 0%, #fff1f2 100%) !important;
+          color: #0f172a !important;
+          border: 1px solid #fecaca !important;
+          box-shadow: 0 14px 34px rgba(220,38,38,.08) !important;
+        }
+
+        .emergency-panel h2 {
+          color: #991b1b !important;
+          margin-top: 0 !important;
+        }
+
+        .emergency-panel select {
+          border-color: #fca5a5 !important;
+        }
+
+        .emergency-panel button {
+          box-shadow: 0 7px 16px rgba(220,38,38,.13);
+        }
+
+        .emergency-status-card {
+          background: #ffffff !important;
+          color: #334155 !important;
+          border: 1px solid #fecaca;
+          box-shadow: 0 8px 20px rgba(127,29,29,.06);
+        }
+
+        .floor-selector-card {
+          border-radius: 18px !important;
+          padding: 12px 15px !important;
+          box-shadow: 0 10px 26px rgba(15,23,42,.06) !important;
+        }
+
+        .floor-selector-card > strong {
+          color: #334155 !important;
+          margin-right: 3px;
+        }
+
+        .floor-selector-card button {
+          background: #ffffff !important;
+          color: #334155 !important;
+          border: 1px solid #cbd5e1 !important;
+        }
+
+        .floor-selector-card button:hover {
+          background: #eff6ff !important;
+          border-color: #93c5fd !important;
+        }
+
+        .floor-selector-card button[aria-pressed="true"] {
+          background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+          color: #ffffff !important;
+          border-color: transparent !important;
+        }
+
+        .public-map-controls {
+          gap: 8px !important;
+          flex-wrap: wrap;
+        }
+
+        .public-map-controls button {
+          background: #ffffff !important;
+          color: #334155 !important;
+          border: 1px solid #cbd5e1 !important;
+          font-weight: 650;
+        }
+
+        .public-map-card {
+          padding: clamp(12px, 2vw, 20px) !important;
+        }
+
+        .map-heading {
+          margin-bottom: 14px !important;
+          padding: 0 2px;
+        }
+
+        .map-heading h2 {
+          margin: 0 !important;
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          font-size: clamp(1.05rem, 2vw, 1.35rem) !important;
+        }
+
+        .map-heading h2 span {
+          color: #64748b !important;
+          opacity: 1 !important;
+          font-weight: 600;
+          font-size: .78rem !important;
+          padding: 5px 9px;
+          border-radius: 999px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+        }
+
+        /* Make the actual floor surface readable. The navigation coordinates
+           stay exactly the same; only the presentation changes. */
+        .map-viewport {
+          background: #eaf1f8 !important;
+          border: 1px solid #cbd5e1 !important;
+          border-radius: 16px !important;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.65), 0 14px 30px rgba(15,23,42,.12) !important;
+        }
+
+        .map-surface {
+          background: #f8fbff !important;
+          color: #0f172a !important;
+        }
+
+        .map-surface > div:first-child {
+          background-image:
+            linear-gradient(rgba(37,99,235,.055) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(37,99,235,.055) 1px, transparent 1px) !important;
+          background-size: 25px 25px !important;
+        }
+
+        /* Keep room labels high contrast regardless of the page theme. */
+        .map-surface strong {
+          color: #111827 !important;
+          text-shadow: 0 1px 0 rgba(255,255,255,.65);
+        }
+
+        .public-stats-grid {
+          gap: 12px !important;
+        }
+
+        .public-stats-grid > div {
+          background: linear-gradient(135deg, #ffffff, #f5f9ff) !important;
+          color: #0f172a !important;
+          border: 1px solid #dbe4ef !important;
+          border-radius: 18px !important;
+          padding: 16px !important;
+          box-shadow: 0 10px 25px rgba(15,23,42,.055) !important;
+        }
+
+        .public-stats-grid > div > div:nth-child(2) {
+          color: #64748b !important;
+          opacity: 1 !important;
+          font-weight: 600;
+        }
+
+        .public-stats-grid > div > div:nth-child(3) {
+          color: #0f172a !important;
+        }
+
+        @media (max-width: 767px) {
+          .universal-public-nav {
+            padding: 10px !important;
+          }
+
+          .public-nav-hero {
+            padding: 18px !important;
+            border-radius: 19px !important;
+          }
+
+          .universal-public-nav h1 {
+            font-size: 1.65rem !important;
+          }
+
+          .route-search-card,
+          .public-map-card,
+          .emergency-panel {
+            border-radius: 18px !important;
+          }
+
+          .route-search-card {
+            padding: 15px !important;
+          }
+
+          .route-search-card > div:first-of-type {
+            grid-template-columns: 1fr !important;
+          }
+
+          .route-search-card > div:first-of-type button {
+            width: 100%;
+          }
+
+          .accessibility-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+            gap: 8px !important;
+          }
+
+          .accessibility-grid label {
+            min-height: 44px;
+          }
+
+          .route-result-card {
+            padding: 14px !important;
+          }
+
+          .route-options button {
+            flex: 1 1 auto;
+          }
+
+          .simulation-controls {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 7px !important;
+          }
+
+          .simulation-controls button,
+          .simulation-controls select {
+            min-height: 38px !important;
+          }
+
+          .simulation-controls button:first-child {
+            width: 100%;
+          }
+
+          .emergency-panel {
+            padding: 15px !important;
+          }
+
+          .emergency-panel > div:first-child {
+            align-items: flex-start !important;
+            gap: 10px;
+          }
+
+          .emergency-panel > div:nth-child(2) {
+            flex-direction: column !important;
+          }
+
+          .emergency-panel > div:nth-child(2) select,
+          .emergency-panel > div:nth-child(2) button {
+            width: 100%;
+            min-height: 44px;
+          }
+
+          .floor-selector-card {
+            overflow-x: auto;
+            flex-wrap: nowrap !important;
+            scrollbar-width: thin;
+          }
+
+          .floor-selector-card button {
+            flex: 0 0 auto;
+            min-height: 42px;
+          }
+
+          .public-map-controls {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .public-map-controls button {
+            min-height: 42px;
+          }
+
+          .public-map-card {
+            padding: 10px !important;
+          }
+
+          .map-viewport {
+            border-radius: 13px !important;
+          }
+
+          .public-stats-grid {
+            grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+          }
+        }
+
+        @media (max-width: 430px) {
+          .accessibility-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          .simulation-controls {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .simulation-controls button:first-child {
+            grid-column: 1 / -1;
+          }
+
+          .public-map-controls {
+            grid-template-columns: 1fr !important;
+          }
+
+          .public-stats-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .universal-public-nav * {
+            scroll-behavior: auto !important;
+            transition-duration: .01ms !important;
+            animation-duration: .01ms !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -4358,11 +4948,15 @@ function Stat({
     <div
       style={{
         background:
-          "#172b55",
+          "#ffffff",
+        color:
+          "#0f172a",
         padding: 18,
-        borderRadius: 12,
+        borderRadius: 18,
         border:
-          "1px solid #294777"
+          "1px solid #dbe4ef",
+        boxShadow:
+          "0 10px 25px rgba(15,23,42,.055)"
       }}
     >
       <div

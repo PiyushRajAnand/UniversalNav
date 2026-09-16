@@ -57,10 +57,6 @@ AUDIT LOG HELPER
 ============================================================
 */
 
-/**
- * Create an audit log without allowing audit-log failures
- * to break the actual map operation.
- */
 async function createAuditLog({
   req,
   action,
@@ -83,7 +79,8 @@ async function createAuditLog({
       description,
       resourceType,
       resourceId:
-        resourceId !== null && resourceId !== undefined
+        resourceId !== null &&
+        resourceId !== undefined
           ? String(resourceId)
           : undefined,
       metadata,
@@ -107,15 +104,6 @@ MAP OWNERSHIP
 ============================================================
 */
 
-/**
- * Check whether a map belongs to the logged-in user.
- *
- * Supports both:
- *   userId
- *   owner
- *
- * This keeps compatibility with older maps.
- */
 function mapBelongsToUser(map, userId) {
   if (!map || !userId) {
     return false;
@@ -133,15 +121,6 @@ NORMALIZE MAP
 ============================================================
 */
 
-/**
- * Keep compatibility with old MapEditor data.
- *
- * Supports:
- *   waypoints / nodes
- *   connections / edges
- *   rooms
- *   floors
- */
 function normalizeMap(map) {
   if (!map) return null;
 
@@ -182,12 +161,14 @@ function normalizeMap(map) {
     Array.isArray(map.connections) &&
     map.connections.length > 0
   ) {
-    result.connections = map.connections;
+    result.connections =
+      map.connections;
   } else if (
     Array.isArray(map.edges) &&
     map.edges.length > 0
   ) {
-    result.connections = map.edges;
+    result.connections =
+      map.edges;
   } else {
     result.connections = [];
   }
@@ -288,9 +269,6 @@ async function findMapById(identifier) {
     },
   ];
 
-  /*
-  MongoDB _id support.
-  */
   if (
     mongoose.Types.ObjectId.isValid(value)
   ) {
@@ -310,13 +288,6 @@ FIND OWNED MAP
 ============================================================
 */
 
-/**
- * Find a map ONLY if it belongs to the user.
- *
- * Used for:
- *   DELETE
- *   VISIBILITY
- */
 async function findOwnedMap(
   identifier,
   userId
@@ -336,9 +307,6 @@ async function findOwnedMap(
     },
   ];
 
-  /*
-  MongoDB _id support.
-  */
   if (
     mongoose.Types.ObjectId.isValid(value)
   ) {
@@ -374,11 +342,20 @@ GET ALL MAPS
 
 GET /api/maps
 
+AUTHORIZATION RULES:
+
 Anonymous:
     PUBLIC maps only
 
-Logged in:
-    PUBLIC maps + OWN maps
+Authenticated:
+    ONLY maps owned by authenticated user
+
+IMPORTANT:
+    Public status does NOT make a map appear in the
+    authenticated user's Dashboard.
+
+Public maps are accessible through GET /api/maps/:id
+for PublicNavigation / QR navigation.
 
 ============================================================
 */
@@ -388,16 +365,36 @@ router.get(
   optionalProtect,
   async (req, res) => {
     try {
-      const userId = getUserId(req);
+      const userId =
+        getUserId(req);
 
       let query;
+
+      /*
+      ======================================================
+      AUTHENTICATED USER
+      ======================================================
+
+      IMPORTANT FIX:
+
+      Previously this contained:
+
+          { isPublic: true }
+
+      That caused every logged-in user to receive every
+      public map.
+
+      Now authenticated users receive ONLY maps where they
+      are the owner.
+
+      Both ownership fields are supported for compatibility
+      with older maps.
+      ======================================================
+      */
 
       if (userId) {
         query = {
           $or: [
-            {
-              isPublic: true,
-            },
             {
               userId: userId,
             },
@@ -406,10 +403,35 @@ router.get(
             },
           ],
         };
+
+        console.log(
+          "🔐 DASHBOARD MAP AUTHORIZATION",
+          {
+            userId,
+            rule: "OWNER_ONLY",
+          }
+        );
       } else {
+        /*
+        ====================================================
+        ANONYMOUS USER
+        ====================================================
+
+        Anonymous users can discover public maps.
+        This is required for public navigation / QR.
+        ====================================================
+        */
+
         query = {
           isPublic: true,
         };
+
+        console.log(
+          "🌐 PUBLIC MAP ACCESS",
+          {
+            rule: "PUBLIC_ONLY",
+          }
+        );
       }
 
       const maps =
@@ -418,6 +440,11 @@ router.get(
             updatedAt: -1,
           })
           .lean();
+
+      console.log(
+        "📊 Maps returned:",
+        maps.length
+      );
 
       return res.json({
         success: true,
@@ -434,8 +461,8 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        error: "Failed to fetch maps",
-        message: err.message,
+        error:
+          "Unable to fetch maps. Please try again.",
       });
     }
   }
@@ -511,15 +538,32 @@ router.get(
         const isPublic =
           map.isPublic === true;
 
-        // if (
-        //   !isPublic &&
-        //   !isOwner
-        // ) {
-        //   return res.status(404).json({
-        //     success: false,
-        //     error: "Map not found",
-        //   });
-        // }
+        /*
+        ====================================================
+        PRIVATE MAP SECURITY
+        ====================================================
+        */
+
+        if (!isPublic && !isOwner) {
+          console.warn(
+            "🚨 Unauthorized private map access",
+            {
+              mapId:
+                map._id,
+              requestedBy:
+                userId || "anonymous",
+              owner:
+                map.userId ||
+                map.owner ||
+                null,
+            }
+          );
+
+          return res.status(404).json({
+            success: false,
+            error: "Map not found",
+          });
+        }
 
         const normalizedMap =
           normalizeMap(
@@ -638,15 +682,32 @@ router.get(
       const isPublic =
         building.isPublic === true;
 
-      // if (
-      //   !isPublic &&
-      //   !isOwner
-      // ) {
-      //   return res.status(404).json({
-      //     success: false,
-      //     error: "Map not found",
-      //   });
-      // }
+      /*
+      ======================================================
+      PRIVATE BUILDING SECURITY
+      ======================================================
+      */
+
+      if (!isPublic && !isOwner) {
+        console.warn(
+          "🚨 Unauthorized private building access",
+          {
+            buildingId:
+              building._id,
+            requestedBy:
+              userId || "anonymous",
+            owner:
+              building.owner ||
+              building.userId ||
+              null,
+          }
+        );
+
+        return res.status(404).json({
+          success: false,
+          error: "Map not found",
+        });
+      }
 
       const normalizedBuilding =
         normalizeMap(
@@ -688,8 +749,8 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        error: "Failed to fetch map",
-        message: err.message,
+        error:
+          "Unable to load the map. Please try again.",
       });
     }
   }
@@ -724,7 +785,8 @@ router.post(
       if (!userId) {
         return res.status(401).json({
           success: false,
-          error: "Authentication required",
+          error:
+            "Authentication required",
         });
       }
 
@@ -917,7 +979,7 @@ router.post(
 
         /*
         ----------------------------------------------------
-        REMEMBER PUBLIC STATUS BEFORE UPDATE
+        REMEMBER PUBLIC STATUS
         ----------------------------------------------------
         */
 
@@ -1000,7 +1062,8 @@ router.post(
       */
 
       /*
-      NEVER take owner from frontend.
+      IMPORTANT:
+      Ownership comes ONLY from authenticated session.
       */
 
       payload.userId =
@@ -1096,7 +1159,7 @@ router.post(
       return res.status(500).json({
         success: false,
         error:
-          err.message,
+          "Unable to save the map. Please try again.",
       });
     }
   }
@@ -1250,7 +1313,7 @@ router.delete(
         success: false,
 
         error:
-          err.message,
+          "Unable to delete the map. Please try again.",
       });
     }
   }
@@ -1423,7 +1486,7 @@ router.patch(
         success: false,
 
         error:
-          err.message,
+          "Unable to change map visibility. Please try again.",
       });
     }
   }

@@ -12,14 +12,15 @@ const buildingSchema = new mongoose.Schema(
       type: String,
       sparse: true,
       index: true,
+      trim: true,
     },
 
     buildingId: {
       type: String,
       sparse: true,
       index: true,
+      trim: true,
     },
-
 
     /*
     ========================================================
@@ -34,7 +35,6 @@ const buildingSchema = new mongoose.Schema(
       index: true,
     },
 
-
     /*
     ========================================================
     BASIC INFORMATION
@@ -45,32 +45,60 @@ const buildingSchema = new mongoose.Schema(
       type: String,
       default: "Untitled Building",
       trim: true,
+      maxlength: 200,
     },
 
     title: {
       type: String,
       default: "Untitled Building",
       trim: true,
+      maxlength: 200,
     },
 
     description: {
       type: String,
       default: "",
+      maxlength: 2000,
     },
 
     address: {
-      street: String,
-      city: String,
-      state: String,
-      country: String,
-      zipCode: String,
+      street: {
+        type: String,
+        trim: true,
+        maxlength: 300,
+      },
+
+      city: {
+        type: String,
+        trim: true,
+        maxlength: 100,
+      },
+
+      state: {
+        type: String,
+        trim: true,
+        maxlength: 100,
+      },
+
+      country: {
+        type: String,
+        trim: true,
+        maxlength: 100,
+      },
+
+      zipCode: {
+        type: String,
+        trim: true,
+        maxlength: 20,
+      },
     },
 
     category: {
       type: String,
       default: "Other",
+      trim: true,
+      maxlength: 100,
     },
-
 
     /*
     ========================================================
@@ -99,7 +127,6 @@ const buildingSchema = new mongoose.Schema(
       default: false,
     },
 
-
     /*
     ========================================================
     FLOORS
@@ -109,50 +136,55 @@ const buildingSchema = new mongoose.Schema(
     totalFloors: {
       type: Number,
       default: 1,
+      min: 1,
     },
 
     floors: {
       type: Array,
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
     MAP DATA
     ========================================================
+
+    These flexible arrays are intentionally preserved.
+
+    MapEditor/PublicNavigation may store different map
+    structures here, so we are NOT converting them into
+    strict sub-schemas at this stage.
     */
 
     rooms: {
       type: Array,
-      default: [],
+      default: () => [],
     },
 
     waypoints: {
       type: Array,
-      default: [],
+      default: () => [],
     },
 
     nodes: {
       type: Array,
-      default: [],
+      default: () => [],
     },
 
     edges: {
       type: Array,
-      default: [],
+      default: () => [],
     },
 
     connections: {
       type: Array,
-      default: [],
+      default: () => [],
     },
 
     boundaries: {
       type: Array,
-      default: [],
+      default: () => [],
     },
-
 
     /*
     ========================================================
@@ -165,6 +197,7 @@ const buildingSchema = new mongoose.Schema(
         version: {
           type: Number,
           default: 1,
+          min: 1,
         },
 
         snapshot: {
@@ -183,17 +216,29 @@ const buildingSchema = new mongoose.Schema(
       },
     ],
   },
+
   {
     timestamps: true,
 
     /*
-    Keep old MapEditor fields.
+    ========================================================
+    IMPORTANT
+    ========================================================
+
+    Keep strict:false for now.
+
+    UniversalNav's existing MapEditor stores flexible
+    map structures. Tightening this prematurely could
+    silently remove or reject existing fields.
+
+    We can migrate to structured subdocuments later,
+    after the complete MapEditor/PublicNavigation data
+    flow has been verified.
     */
 
     strict: false,
   }
 );
-
 
 module.exports = mongoose.model(
   "Building",

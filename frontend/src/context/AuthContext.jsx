@@ -22,21 +22,18 @@ export const AuthProvider = ({ children }) => {
     const checkSession = async () => {
       try {
         /*
-        ========================================================
-        IMPORTANT
+          Authentication comes from the Express session.
 
-        Authentication comes ONLY from the Express session.
-
-        Axios sends connect.sid because:
-          withCredentials: true
-
-        Backend:
-          connect.sid
-              ↓
+          Axios:
+            withCredentials: true
+                    ↓
+          Browser sends universalnav.sid
+                    ↓
+          Express session
+                    ↓
           req.session.userId
-              ↓
+                    ↓
           User.findById()
-        ========================================================
         */
 
         const response = await API.get("/auth/me");
@@ -55,8 +52,8 @@ export const AuthProvider = ({ children }) => {
         if (!mounted) return;
 
         /*
-        401 simply means there is no valid session.
-        This is normal when the user is logged out.
+          401 simply means there is no valid session.
+          This is normal when the user is logged out.
         */
 
         if (err.response?.status !== 401) {
@@ -99,11 +96,10 @@ export const AuthProvider = ({ children }) => {
         data?.user
       ) {
         /*
-        Backend creates the Express session during
-        registration.
+          Backend creates the authenticated Express session.
 
-        Store the user ONLY in React state.
-        The session remains the real authentication source.
+          React state is only used for UI state.
+          The session remains the real authentication source.
         */
 
         setUser(data.user);
@@ -138,10 +134,10 @@ export const AuthProvider = ({ children }) => {
         data?.user
       ) {
         /*
-        Backend has already created the authenticated
-        Express session.
+          Backend has already created the authenticated
+          Express session.
 
-        React state is only used for UI state.
+          React state is only used for UI state.
         */
 
         setUser(data.user);
@@ -165,22 +161,23 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       /*
-      Backend destroys the Express session and clears
-      connect.sid.
+        Backend destroys the Express session and clears
+        the universalnav.sid cookie.
       */
 
       await API.post("/auth/logout");
     } catch (err) {
+      /*
+        Even if the backend request fails, clear local
+        authentication state so the UI doesn't remain
+        stuck in a logged-in state.
+      */
+
       console.error(
         "Logout error:",
         err.response?.data || err.message
       );
     } finally {
-      /*
-      Regardless of backend response, clear the frontend
-      authentication state.
-      */
-
       setUser(null);
     }
   };

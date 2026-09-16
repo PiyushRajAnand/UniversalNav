@@ -3,6 +3,23 @@ const AuditLog = require("../models/AuditLog");
 const { AUTH } = require("../constants/responseMessages");
 
 // ============================================================
+// ENVIRONMENT
+// ============================================================
+const NODE_ENV = process.env.NODE_ENV || "development";
+const IS_PRODUCTION = NODE_ENV === "production";
+
+// ============================================================
+// SESSION COOKIE OPTIONS
+// ============================================================
+const SESSION_COOKIE_NAME = "universalnav.sid";
+
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: IS_PRODUCTION,
+  sameSite: IS_PRODUCTION ? "none" : "lax",
+};
+
+// ============================================================
 // REGISTER
 // ============================================================
 const register = async (req, res, next) => {
@@ -16,25 +33,24 @@ const register = async (req, res, next) => {
     // ========================================================
     // CHECK EXISTING USER
     // ========================================================
-    const existingUser = await User.findOne({
-      email,
-    });
+    const existingUser = await User.findOne({ email });
 
     if (existingUser) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        error: AUTH.USER_EXISTS || "User already exists",
+        error:
+          AUTH.USER_EXISTS ||
+          "This email is already registered. Please log in instead.",
       });
     }
 
     // ========================================================
     // CREATE USER
     // ========================================================
-    // IMPORTANT:
-    // Never accept role from the frontend during registration.
-    // User model should apply its default role.
-    // ========================================================
-
+    /*
+      Never accept role from the frontend during registration.
+      User model applies its default role.
+    */
     const newUser = await User.create({
       name,
       email,
@@ -44,7 +60,11 @@ const register = async (req, res, next) => {
     // ========================================================
     // CREATE NEW SESSION
     // ========================================================
-
+    /*
+      Regenerate the session after registration.
+      This prevents session fixation and creates a fresh
+      authenticated session for the newly registered user.
+    */
     req.session.regenerate((err) => {
       if (err) {
         console.error(
@@ -52,17 +72,22 @@ const register = async (req, res, next) => {
           err
         );
 
-        return next(err);
+        return res.status(500).json({
+          success: false,
+          error:
+            AUTH.SESSION_ERROR ||
+            "We couldn't start your session. Please try again.",
+        });
       }
 
-      // Store authenticated user's ID
-      req.session.userId =
-        newUser._id.toString();
+      // ======================================================
+      // STORE USER ID
+      // ======================================================
+      req.session.userId = newUser._id.toString();
 
       // ======================================================
       // SAVE SESSION
       // ======================================================
-
       req.session.save(async (saveErr) => {
         if (saveErr) {
           console.error(
@@ -70,45 +95,67 @@ const register = async (req, res, next) => {
             saveErr
           );
 
-          return next(saveErr);
+          return res.status(500).json({
+            success: false,
+            error:
+              AUTH.SESSION_ERROR ||
+              "We couldn't start your session. Please try again.",
+          });
         }
 
         // ====================================================
         // AUDIT LOG
         // ====================================================
-
         try {
           await AuditLog.create({
             userId: newUser._id,
             email: newUser.email,
-            action: "LOGIN",
+            action: "REGISTER",
             ipAddress: req.ip,
           });
-
-          // ==================================================
-          // SUCCESS
-          // ==================================================
-
-          return res.status(201).json({
-            success: true,
-            message:
-              AUTH.REGISTER_SUCCESS ||
-              "Registration successful",
-
-            user: {
-              id: newUser._id,
-              name: newUser.name,
-              email: newUser.email,
-              role: newUser.role,
-            },
-          });
         } catch (auditError) {
-          return next(auditError);
+          /*
+            Audit logging should not make a successful
+            registration appear to have failed.
+          */
+          console.error(
+            "Registration audit log error:",
+            auditError
+          );
         }
+
+        // ====================================================
+        // SUCCESS
+        // ====================================================
+        return res.status(201).json({
+          success: true,
+          message:
+            AUTH.REGISTER_SUCCESS ||
+            "Account created successfully",
+
+          user: {
+            id: newUser._id,
+            name: newUser.name,
+            email: newUser.email,
+            role: newUser.role,
+          },
+        });
       });
     });
   } catch (err) {
-    next(err);
+    // ========================================================
+    // MONGODB DUPLICATE KEY
+    // ========================================================
+    if (err?.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        error:
+          AUTH.USER_EXISTS ||
+          "This email is already registered. Please log in instead.",
+      });
+    }
+
+    return next(err);
   }
 };
 
@@ -125,15 +172,21 @@ const login = async (req, res, next) => {
     // ========================================================
     // FIND USER
     // ========================================================
-
-    const user = await User.findOne({
-      email,
-    });
+    const user = await User.findOne({ email });
 
     // ========================================================
     // VALIDATE CREDENTIALS
     // ========================================================
+    /*
+      Keep this message generic.
 
+      We should never tell the client whether:
+      - the email exists
+      - the password was wrong
+      - the account does not exist
+
+      This prevents account enumeration.
+    */
     if (
       !user ||
       !(await user.comparePassword(password))
@@ -142,16 +195,17 @@ const login = async (req, res, next) => {
         success: false,
         error:
           AUTH.INVALID_CREDENTIALS ||
-          "Invalid email or password",
+          "Invalid email or password.",
       });
     }
 
     // ========================================================
     // REGENERATE SESSION
     // ========================================================
-    // Prevents session fixation after login.
-    // ========================================================
-
+    /*
+      Regenerating the session after successful authentication
+      helps prevent session fixation attacks.
+    */
     req.session.regenerate((err) => {
       if (err) {
         console.error(
@@ -159,20 +213,22 @@ const login = async (req, res, next) => {
           err
         );
 
-        return next(err);
+        return res.status(500).json({
+          success: false,
+          error:
+            AUTH.SESSION_ERROR ||
+            "We couldn't start your session. Please try again.",
+        });
       }
 
       // ======================================================
       // STORE USER ID
       // ======================================================
-
-      req.session.userId =
-        user._id.toString();
+      req.session.userId = user._id.toString();
 
       // ======================================================
       // SAVE SESSION
       // ======================================================
-
       req.session.save(async (saveErr) => {
         if (saveErr) {
           console.error(
@@ -180,13 +236,17 @@ const login = async (req, res, next) => {
             saveErr
           );
 
-          return next(saveErr);
+          return res.status(500).json({
+            success: false,
+            error:
+              AUTH.SESSION_ERROR ||
+              "We couldn't start your session. Please try again.",
+          });
         }
 
         // ====================================================
         // AUDIT LOG
         // ====================================================
-
         try {
           await AuditLog.create({
             userId: user._id,
@@ -194,31 +254,37 @@ const login = async (req, res, next) => {
             action: "LOGIN",
             ipAddress: req.ip,
           });
-
-          // ==================================================
-          // SUCCESS
-          // ==================================================
-
-          return res.json({
-            success: true,
-            message:
-              AUTH.LOGIN_SUCCESS ||
-              "Login successful",
-
-            user: {
-              id: user._id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-            },
-          });
         } catch (auditError) {
-          return next(auditError);
+          /*
+            Audit failure should not make a successful login
+            appear to have failed.
+          */
+          console.error(
+            "Login audit log error:",
+            auditError
+          );
         }
+
+        // ====================================================
+        // SUCCESS
+        // ====================================================
+        return res.json({
+          success: true,
+          message:
+            AUTH.LOGIN_SUCCESS ||
+            "Welcome back!",
+
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+        });
       });
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
@@ -232,7 +298,6 @@ const logout = async (req, res, next) => {
     // ========================================================
     // FIND CURRENT USER
     // ========================================================
-
     if (req.session?.userId) {
       user = await User.findById(
         req.session.userId
@@ -242,7 +307,6 @@ const logout = async (req, res, next) => {
     // ========================================================
     // AUDIT LOG
     // ========================================================
-
     if (user) {
       try {
         await AuditLog.create({
@@ -253,10 +317,8 @@ const logout = async (req, res, next) => {
         });
       } catch (auditError) {
         /*
-        Audit failure should not prevent the user
-        from being logged out.
+          Audit failure should never prevent logout.
         */
-
         console.error(
           "Logout audit log error:",
           auditError
@@ -267,8 +329,12 @@ const logout = async (req, res, next) => {
     // ========================================================
     // NO SESSION
     // ========================================================
-
     if (!req.session) {
+      res.clearCookie(
+        SESSION_COOKIE_NAME,
+        SESSION_COOKIE_OPTIONS
+      );
+
       return res.json({
         success: true,
         message:
@@ -280,7 +346,6 @@ const logout = async (req, res, next) => {
     // ========================================================
     // DESTROY SESSION
     // ========================================================
-
     req.session.destroy((err) => {
       if (err) {
         console.error(
@@ -290,20 +355,22 @@ const logout = async (req, res, next) => {
 
         return res.status(500).json({
           success: false,
-          error: "Could not log out.",
+          error:
+            "We couldn't log you out. Please try again.",
         });
       }
 
       // ======================================================
       // CLEAR SESSION COOKIE
       // ======================================================
+      res.clearCookie(
+        SESSION_COOKIE_NAME,
+        SESSION_COOKIE_OPTIONS
+      );
 
-      res.clearCookie("connect.sid", {
-        httpOnly: true,
-        secure: false,
-        sameSite: "lax",
-      });
-
+      // ======================================================
+      // SUCCESS
+      // ======================================================
       return res.json({
         success: true,
         message:
@@ -312,7 +379,7 @@ const logout = async (req, res, next) => {
       });
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
@@ -324,21 +391,19 @@ const getMe = async (req, res, next) => {
     // ========================================================
     // CHECK SESSION
     // ========================================================
-
     if (
       !req.session ||
       !req.session.userId
     ) {
       return res.status(401).json({
         success: false,
-        error: "Not authenticated",
+        error: AUTH.UNAUTHORIZED || "Authentication required. Please log in.",
       });
     }
 
     // ========================================================
     // FIND USER
     // ========================================================
-
     const user = await User.findById(
       req.session.userId
     ).select("-passwordHash -password");
@@ -346,17 +411,22 @@ const getMe = async (req, res, next) => {
     // ========================================================
     // USER NO LONGER EXISTS
     // ========================================================
-
     if (!user) {
       /*
-      The session points to a user that no longer exists.
-      Destroy the invalid session.
+        Session points to a user that no longer exists.
+        Destroy the invalid session.
       */
-
       return req.session.destroy(() => {
+        res.clearCookie(
+          SESSION_COOKIE_NAME,
+          SESSION_COOKIE_OPTIONS
+        );
+
         return res.status(401).json({
           success: false,
-          error: "Not authenticated",
+          error:
+            AUTH.UNAUTHORIZED ||
+            "Authentication required. Please log in.",
         });
       });
     }
@@ -364,20 +434,18 @@ const getMe = async (req, res, next) => {
     // ========================================================
     // SUCCESS
     // ========================================================
-
     return res.json({
       success: true,
       user,
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 // ============================================================
 // EXPORT
 // ============================================================
-
 module.exports = {
   register,
   login,
