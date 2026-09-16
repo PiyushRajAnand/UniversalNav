@@ -185,9 +185,6 @@ export default function PublicNavigation() {
   const [currentLocationNodeId, setCurrentLocationNodeId] =
     useState("");
 
-  // Explicit room selected as the user\'s current location for emergency routing.
-  const [currentRoomId, setCurrentRoomId] = useState("");
-
   // ==============================================================
   // EMERGENCY
   // ==============================================================
@@ -1646,18 +1643,6 @@ export default function PublicNavigation() {
       let startWpId =
         currentLocationNodeId;
 
-      if (!startWpId && currentRoomId) {
-        const currentRoom =
-          rooms.find(
-            (room) =>
-              String(room._id) ===
-              String(currentRoomId)
-          );
-
-        startWpId =
-          currentRoom?.waypointId;
-      }
-
       if (!startWpId) {
         const startRoom =
           rooms.find(
@@ -1963,7 +1948,6 @@ export default function PublicNavigation() {
     },
     [
       currentLocationNodeId,
-      currentRoomId,
       startRoomId,
       rooms,
       blockedRoomIds,
@@ -2119,7 +2103,11 @@ export default function PublicNavigation() {
             return {
               x: node.x,
               y: node.y,
-              floor: node.floor
+              floor: node.floor,
+              heading: Math.atan2(
+                Number(segment.p2.y || 0) - Number(segment.p1.y || 0),
+                Number(segment.p2.x || 0) - Number(segment.p1.x || 0)
+              ) * (180 / Math.PI)
             };
           }
 
@@ -2141,7 +2129,12 @@ export default function PublicNavigation() {
                 localProgress,
 
             floor:
-              segment.p1.floor
+              segment.p1.floor,
+
+            heading: Math.atan2(
+              Number(segment.p2.y || 0) - Number(segment.p1.y || 0),
+              Number(segment.p2.x || 0) - Number(segment.p1.x || 0)
+            ) * (180 / Math.PI)
           };
         }
       }
@@ -2152,7 +2145,8 @@ export default function PublicNavigation() {
       return {
         x: last.x,
         y: last.y,
-        floor: last.floor
+        floor: last.floor,
+        heading: 0
       };
     }, [
       navigationPath,
@@ -2312,6 +2306,12 @@ export default function PublicNavigation() {
   // ==============================================================
   // ROUTE INSTRUCTIONS
   // ==============================================================
+  //
+  // Instructions are calculated from the actual waypoint geometry.
+  // Pathfinding itself is untouched.  Straight segments are grouped,
+  // turns are detected from three consecutive waypoints, and floor
+  // changes explicitly mention stairs/elevator.
+  // ==============================================================
 
   const instructions =
     useMemo(() => {
@@ -2327,7 +2327,8 @@ export default function PublicNavigation() {
           .map((id) =>
             waypoints.find(
               (wp) =>
-                wp.id === id
+                String(wp.id) ===
+                String(id)
             )
           )
           .filter(Boolean);
@@ -2340,14 +2341,13 @@ export default function PublicNavigation() {
 
       const result = [];
 
-      const first =
-        nodes[0];
+      const first = nodes[0];
 
       const startRoom =
         rooms.find(
           (room) =>
-            room.waypointId ===
-            first.id
+            String(room.waypointId) ===
+            String(first.id)
         );
 
       result.push({
@@ -2356,97 +2356,282 @@ export default function PublicNavigation() {
         text: `Start at ${
           startRoom?.name ||
           "Current Location"
-        } (${first.floor})`
+        } (${first.floor || "Floor"})`
       });
+
+      const getSegmentDistance = (
+        current,
+        next
+      ) => {
+        const matchingEdge =
+          edges.find(
+            (edge) =>
+              (
+                String(edge.from) ===
+                  String(current.id) &&
+                String(edge.to) ===
+                  String(next.id)
+              ) ||
+              (
+                String(edge.from) ===
+                  String(next.id) &&
+                String(edge.to) ===
+                  String(current.id)
+              )
+          );
+
+        const customDistance =
+          Number(
+            matchingEdge?.customDistance
+          );
+
+        if (
+          Number.isFinite(customDistance) &&
+          customDistance > 0
+        ) {
+          return customDistance;
+        }
+
+        return (
+          Math.hypot(
+            Number(next.x || 0) -
+              Number(current.x || 0),
+            Number(next.y || 0) -
+              Number(current.y || 0)
+          ) * PIXELS_TO_METERS
+        );
+      };
+
+      const getHeading = (
+        from,
+        to
+      ) => {
+        const dx =
+          Number(to.x || 0) -
+          Number(from.x || 0);
+        const dy =
+          Number(to.y || 0) -
+          Number(from.y || 0);
+
+        return (
+          Math.atan2(dy, dx) *
+          (180 / Math.PI)
+        );
+      };
+
+      const normalizeAngle = (
+        angle
+      ) => {
+        let value =
+          angle % 360;
+
+        if (value > 180) {
+          value -= 360;
+        }
+
+        if (value < -180) {
+          value += 360;
+        }
+
+        return value;
+      };
+
+      const getTurnInstruction = (
+        previous,
+        current,
+        next,
+        distance
+      ) => {
+        const incoming =
+          getHeading(
+            previous,
+            current
+          );
+
+        const outgoing =
+          getHeading(
+            current,
+            next
+          );
+
+        const angle =
+          normalizeAngle(
+            outgoing - incoming
+          );
+
+        const absolute =
+          Math.abs(angle);
+
+        if (absolute < 20) {
+          return {
+            type: "straight",
+            icon: "⬆️",
+            title: "Continue Straight",
+            text: `Continue straight for ${formatDistanceMeters(distance)}`
+          };
+        }
+
+        if (absolute >= 135) {
+          return {
+            type: "turn",
+            icon: "🔄",
+            title: "U-Turn",
+            text: `Make a U-turn, then walk ${formatDistanceMeters(distance)}`
+          };
+        }
+
+        if (absolute < 45) {
+          return angle < 0
+            ? {
+                type: "turn",
+                icon: "↖️",
+                title: "Slight Left",
+                text: `Keep slightly left, then walk ${formatDistanceMeters(distance)}`
+              }
+            : {
+                type: "turn",
+                icon: "↗️",
+                title: "Slight Right",
+                text: `Keep slightly right, then walk ${formatDistanceMeters(distance)}`
+              };
+        }
+
+        if (absolute >= 100) {
+          return angle < 0
+            ? {
+                type: "turn",
+                icon: "⚠️",
+                title: "Slow Down & Turn Left",
+                text: `Slow down, turn left, then walk ${formatDistanceMeters(distance)}`
+              }
+            : {
+                type: "turn",
+                icon: "⚠️",
+                title: "Slow Down & Turn Right",
+                text: `Slow down, turn right, then walk ${formatDistanceMeters(distance)}`
+              };
+        }
+
+        return angle < 0
+          ? {
+              type: "turn",
+              icon: "↩️",
+              title: "Turn Left",
+              text: `Turn left, then walk ${formatDistanceMeters(distance)}`
+            }
+          : {
+              type: "turn",
+              icon: "↪️",
+              title: "Turn Right",
+              text: `Turn right, then walk ${formatDistanceMeters(distance)}`
+            };
+      };
+
+      let walkingDistance = 0;
+
+      const flushWalkingDistance = () => {
+        if (walkingDistance <= 0) {
+          return;
+        }
+
+        result.push({
+          icon: "🚶",
+          title: "Walk",
+          text: `Walk ${formatDistanceMeters(
+            walkingDistance
+          )}`
+        });
+
+        walkingDistance = 0;
+      };
 
       for (
         let i = 0;
         i < nodes.length - 1;
         i++
       ) {
-        const current =
-          nodes[i];
+        const current = nodes[i];
+        const next = nodes[i + 1];
 
-        const next =
-          nodes[i + 1];
-
-        // --------------------------------------------------------
+        // ----------------------------------------------------------
         // FLOOR CHANGE
-        // --------------------------------------------------------
+        // ----------------------------------------------------------
 
         if (
           current.floor !==
           next.floor
         ) {
+          flushWalkingDistance();
+
           const room =
             rooms.find(
               (r) =>
-                r.waypointId ===
-                current.id
+                String(r.waypointId) ===
+                String(current.id)
             );
 
           const type =
-            room?.type ===
-            "Elevator"
+            room?.type === "Elevator"
               ? "Elevator"
               : "Stairs";
 
           result.push({
             icon:
-              type ===
-              "Elevator"
+              type === "Elevator"
                 ? "🛗"
                 : "🪜",
-
             title:
               `Take ${type}`,
-
             text:
-              `Go from ${current.floor} to ${next.floor} via ${type}`
+              `Go from ${current.floor || "this floor"} to ${next.floor || "the next floor"} via ${type}`
           });
 
           continue;
         }
 
-        // --------------------------------------------------------
-        // NORMAL WALK
-        // --------------------------------------------------------
-
-        const matchingEdge =
-          edges.find(
-            (edge) =>
-              (
-                edge.from ===
-                  current.id &&
-                edge.to ===
-                  next.id
-              ) ||
-              (
-                edge.from ===
-                  next.id &&
-                edge.to ===
-                  current.id
-              )
+        const distance =
+          getSegmentDistance(
+            current,
+            next
           );
 
-        const distance =
-          matchingEdge?.customDistance ??
-          Math.hypot(
-            next.x -
-              current.x,
-            next.y -
-              current.y
-          ) *
-            PIXELS_TO_METERS;
+        // The first segment is always an initial walk.
+        if (i === 0) {
+          walkingDistance += distance;
+          continue;
+        }
 
-        result.push({
-          icon: "🚶",
-          title: "Walk",
-          text: `Walk ${formatDistanceMeters(
+        const previous = nodes[i - 1];
+
+        // If the previous segment was on another floor, there is no
+        // meaningful turn angle across the floor transition.
+        if (
+          previous.floor !==
+          current.floor
+        ) {
+          walkingDistance += distance;
+          continue;
+        }
+
+        const turn =
+          getTurnInstruction(
+            previous,
+            current,
+            next,
             distance
-          )}`
-        });
+          );
+
+        if (turn.type === "straight") {
+          walkingDistance += distance;
+          continue;
+        }
+
+        flushWalkingDistance();
+        result.push(turn);
+        walkingDistance += distance;
       }
+
+      flushWalkingDistance();
 
       const last =
         nodes[nodes.length - 1];
@@ -2454,8 +2639,8 @@ export default function PublicNavigation() {
       const destination =
         rooms.find(
           (room) =>
-            room.waypointId ===
-            last.id
+            String(room.waypointId) ===
+            String(last.id)
         );
 
       result.push({
@@ -2464,7 +2649,7 @@ export default function PublicNavigation() {
         text: `Arrive at ${
           destination?.name ||
           "Destination"
-        } (${last.floor})`
+        } (${last.floor || "Floor"})`
       });
 
       return result;
@@ -2474,6 +2659,43 @@ export default function PublicNavigation() {
       rooms,
       edges
     ]);
+
+  // Compact legend shown immediately above the map so users know how
+  // to interpret the route before looking at the floor plan.
+  const directionRules = [
+    {
+      icon: "⬆️",
+      label: "Continue straight"
+    },
+    {
+      icon: "↩️",
+      label: "Turn left"
+    },
+    {
+      icon: "↪️",
+      label: "Turn right"
+    },
+    {
+      icon: "↗️",
+      label: "Slight right"
+    },
+    {
+      icon: "↖️",
+      label: "Slight left"
+    },
+    {
+      icon: "🔄",
+      label: "U-turn"
+    },
+    {
+      icon: "🪜",
+      label: "Floor change"
+    },
+    {
+      icon: "🛗",
+      label: "Elevator"
+    }
+  ];
 
   // ==============================================================
   // LOADING
@@ -3096,179 +3318,6 @@ export default function PublicNavigation() {
               </div>
             )}
 
-            {/* SIMULATION */}
-
-            {navigationPath.length >
-              1 && (
-              <div
-                className="simulation-card"
-                style={{
-                  marginTop: 14,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  background: "rgba(8,25,54,.7)",
-                  border:
-                    "1px solid rgba(71,85,105,.65)"
-                }}
-              >
-                <div
-                  className="simulation-controls"
-                  style={{
-                    display:
-                      "flex",
-                    gap: 10,
-                    alignItems:
-                      "center",
-                    flexWrap:
-                      "wrap"
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      if (
-                        simulationProgress >=
-                        1
-                      ) {
-                        setSimulationProgress(
-                          0
-                        );
-                      }
-
-                      setIsSimulating(
-                        (prev) =>
-                          !prev
-                      );
-                    }}
-                    style={{
-                      padding:
-                        "7px 11px",
-                      borderRadius:
-                        8,
-                      border:
-                        "none",
-                      background:
-                        "#22c55e",
-                      color:
-                        "white",
-                      fontWeight:
-                        "bold"
-                    }}
-                  >
-                    {isSimulating
-                      ? "⏸ Pause"
-                      : simulationProgress >=
-                        1
-                      ? "🔄 Replay"
-                      : "▶ Simulate Route"}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsSimulating(
-                        false
-                      );
-
-                      setSimulationProgress(
-                        0
-                      );
-                    }}
-                    style={{
-                      padding:
-                        "7px 11px",
-                      borderRadius:
-                        8,
-                      border:
-                        "1px solid #64748b",
-                      background:
-                        "#172b55",
-                      color:
-                        "white"
-                    }}
-                  >
-                    ⏹ Reset
-                  </button>
-
-                  <select
-                    value={
-                      simSpeed
-                    }
-                    onChange={(e) =>
-                      setSimSpeed(
-                        Number(
-                          e.target.value
-                        )
-                      )
-                    }
-                    style={{
-                      padding:
-                        "6px 8px",
-                      borderRadius:
-                        7,
-                      background:
-                        "#172b55",
-                      color:
-                        "white"
-                    }}
-                  >
-                    <option value="0.5">
-                      0.5x
-                    </option>
-
-                    <option value="1">
-                      1x
-                    </option>
-
-                    <option value="2">
-                      2x
-                    </option>
-
-                    <option value="4">
-                      4x
-                    </option>
-                  </select>
-                </div>
-
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.005"
-                  value={
-                    simulationProgress
-                  }
-                  onChange={(e) => {
-                    setIsSimulating(
-                      false
-                    );
-
-                    setSimulationProgress(
-                      Number(
-                        e.target.value
-                      )
-                    );
-                  }}
-                  style={{
-                    width:
-                      "100%",
-                    marginTop: 12
-                  }}
-                />
-
-                <div
-                  style={{
-                    fontSize: 13,
-                    opacity: 0.7
-                  }}
-                >
-                  Simulation:{" "}
-                  {Math.round(
-                    simulationProgress *
-                      100
-                  )}
-                  %
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -3336,86 +3385,6 @@ export default function PublicNavigation() {
 
         <div
           style={{
-            marginTop: 15,
-            marginBottom: 12
-          }}
-        >
-          <label
-            style={{
-              display: "block",
-              marginBottom: 7,
-              fontWeight: "bold"
-            }}
-          >
-            📍 Where are you now?
-          </label>
-
-          <select
-            value={currentRoomId}
-            onChange={(e) => {
-              const roomId = e.target.value;
-              setCurrentRoomId(roomId);
-              setRouteError("");
-
-              const room = rooms.find(
-                (item) =>
-                  String(item._id) ===
-                  String(roomId)
-              );
-
-              setCurrentLocationNodeId(
-                room?.waypointId || ""
-              );
-
-              if (room?.floor) {
-                setSelectedFloor(room.floor);
-              }
-            }}
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 8,
-              background: "#172b55",
-              color: "white",
-              border: "1px solid #ef4444"
-            }}
-          >
-            <option value="">
-              📍 I am in this room — Select location
-            </option>
-
-            {rooms.map((room) => (
-              <option
-                key={room._id}
-                value={room._id}
-              >
-                {getRoomIcon(room)} {room.name || "Unnamed"} — {room.floor || "1st FLOOR"}
-              </option>
-            ))}
-          </select>
-
-          {currentRoomId && (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 13,
-                opacity: 0.85
-              }}
-            >
-              📍 Starting evacuation from: {" "}
-              <strong>
-                {rooms.find(
-                  (room) =>
-                    String(room._id) ===
-                    String(currentRoomId)
-                )?.name || "Selected room"}
-              </strong>
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
             display:
               "flex",
             gap: 10,
@@ -3474,7 +3443,7 @@ export default function PublicNavigation() {
                 "bold"
             }}
           >
-            🚨 Prepare Evacuation Route
+            🚨 Route to Emergency Exit
           </button>
 
           {emergencyMode && (
@@ -3605,6 +3574,75 @@ export default function PublicNavigation() {
             </button>
           )
         )}
+      </div>
+
+      {/* ========================================================
+          DIRECTION RULES
+      ======================================================== */}
+
+      <div
+        className="direction-rules-panel public-glass-panel"
+        style={{
+          background: "#101d3b",
+          border: "1px solid #234579",
+          borderRadius: 14,
+          padding: "14px 16px",
+          marginBottom: 14
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap"
+          }}
+        >
+          <div>
+            <strong style={{ fontSize: 16 }}>
+              🧭 Direction Rules
+            </strong>
+            <div
+              style={{
+                fontSize: 13,
+                opacity: 0.72,
+                marginTop: 3
+              }}
+            >
+              Follow the highlighted route. The simulator follows the same waypoint path.
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            marginTop: 11
+          }}
+        >
+          {directionRules.map((rule) => (
+            <span
+              key={rule.label}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 9px",
+                borderRadius: 999,
+                background: "#172b55",
+                border: "1px solid #334e78",
+                fontSize: 12,
+                color: "#e2e8f0"
+              }}
+            >
+              <span>{rule.icon}</span>
+              {rule.label}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* ========================================================
@@ -4370,6 +4408,154 @@ export default function PublicNavigation() {
       </div>
 
       {/* ========================================================
+          ROUTE SIMULATION — BELOW MAP
+      ======================================================== */}
+
+      {navigationPath.length > 1 && (
+        <div
+          className="simulation-card"
+          style={{
+            marginTop: 14,
+            marginBottom: 20,
+            padding: "14px 16px",
+            borderRadius: 12,
+            background: "rgba(8,25,54,.88)",
+            border: "1px solid rgba(71,85,105,.65)"
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+              marginBottom: 10
+            }}
+          >
+            <div>
+              <strong style={{ fontSize: 16 }}>
+                🎬 Route Simulation
+              </strong>
+              <div
+                style={{
+                  fontSize: 12,
+                  opacity: 0.7,
+                  marginTop: 2
+                }}
+              >
+                Preview the same route shown on the map.
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="simulation-controls"
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap"
+            }}
+          >
+            <button
+              onClick={() => {
+                if (simulationProgress >= 1) {
+                  setSimulationProgress(0);
+                }
+
+                setIsSimulating((prev) => !prev);
+              }}
+              style={{
+                padding: "8px 13px",
+                borderRadius: 8,
+                border: "none",
+                background: "#22c55e",
+                color: "white",
+                fontWeight: "bold"
+              }}
+            >
+              {isSimulating
+                ? "⏸ Pause"
+                : simulationProgress >= 1
+                ? "🔄 Replay"
+                : "▶ Simulate Route"}
+            </button>
+
+            <button
+              onClick={() => {
+                setIsSimulating(false);
+                setSimulationProgress(0);
+              }}
+              style={{
+                padding: "8px 13px",
+                borderRadius: 8,
+                border: "1px solid #64748b",
+                background: "#172b55",
+                color: "white"
+              }}
+            >
+              ⏹ Reset
+            </button>
+
+            <select
+              value={simSpeed}
+              onChange={(e) =>
+                setSimSpeed(Number(e.target.value))
+              }
+              style={{
+                padding: "7px 8px",
+                borderRadius: 7,
+                background: "#172b55",
+                color: "white"
+              }}
+            >
+              <option value="0.5">0.5x</option>
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+            </select>
+          </div>
+
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.005"
+            value={simulationProgress}
+            onChange={(e) => {
+              setIsSimulating(false);
+              setSimulationProgress(Number(e.target.value));
+            }}
+            style={{
+              width: "100%",
+              marginTop: 12
+            }}
+          />
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+              fontSize: 13,
+              opacity: 0.75
+            }}
+          >
+            <span>
+              Simulation: {Math.round(simulationProgress * 100)}%
+            </span>
+            {simulationPosition?.floor && (
+              <span>
+                📍 {simulationPosition.floor}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
           BLOCKED PATH LEGEND
       ======================================================== */}
 
@@ -4697,6 +4883,23 @@ export default function PublicNavigation() {
         .route-options button:hover,
         .route-options button[aria-pressed="true"] {
           background: #dbeafe !important;
+        }
+
+        .direction-rules-panel {
+          color: #334155 !important;
+          background: #ffffff !important;
+          border-color: #dbe4ef !important;
+          box-shadow: 0 8px 20px rgba(15,23,42,.045);
+        }
+
+        .direction-rules-panel strong {
+          color: #0f172a !important;
+        }
+
+        .direction-rules-panel span {
+          background: #f8fafc !important;
+          border-color: #dbe4ef !important;
+          color: #334155 !important;
         }
 
         .simulation-card {
