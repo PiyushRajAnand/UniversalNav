@@ -434,31 +434,81 @@ export default function PublicNavigation() {
     };
   }, [map]);
 
-  // Keep the public map fully visible on phones while preserving
-  // the original coordinate system used by the navigation engine.
+  // ==============================================================
+  // RESPONSIVE MAP SCALE
+  // --------------------------------------------------------------
+  // Only the visual scale changes on narrow screens.
+  // The original map coordinate system and every map feature remain
+  // untouched.
+  // ==============================================================
   useEffect(() => {
-    const viewport = mapViewportRef.current;
-    if (!viewport) return;
-
     const updateMapScale = () => {
-      const availableWidth = viewport.clientWidth;
-      if (!availableWidth) return;
+      const viewport = mapViewportRef.current;
 
-      const nextScale = Math.min(1, availableWidth / floorSize.width);
-      setMapScale(Number(nextScale.toFixed(4)));
+      if (!viewport || !floorSize.width || floorSize.width <= 0) {
+        return;
+      }
+
+      const availableWidth = viewport.clientWidth;
+
+      if (!availableWidth || availableWidth <= 0) {
+        return;
+      }
+
+      // Keep the original 1:1 size on larger screens.
+      // On phones, scale the complete map down to fit its width.
+      const nextScale = Math.min(
+        1,
+        availableWidth / floorSize.width
+      );
+
+      setMapScale(
+        Number(
+          Math.max(0.05, nextScale).toFixed(4)
+        )
+      );
     };
 
-    updateMapScale();
+    // Run once after the viewport has rendered.
+    const frameId = requestAnimationFrame(
+      updateMapScale
+    );
 
-    const observer = new ResizeObserver(updateMapScale);
-    observer.observe(viewport);
-    window.addEventListener("resize", updateMapScale);
+    window.addEventListener(
+      "resize",
+      updateMapScale
+    );
+
+    let observer;
+
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(
+        updateMapScale
+      );
+
+      if (mapViewportRef.current) {
+        observer.observe(
+          mapViewportRef.current
+        );
+      }
+    }
 
     return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", updateMapScale);
+      cancelAnimationFrame(frameId);
+
+      window.removeEventListener(
+        "resize",
+        updateMapScale
+      );
+
+      if (observer) {
+        observer.disconnect();
+      }
     };
-  }, [floorSize.width]);
+  }, [
+    floorSize.width,
+    floorSize.height
+  ]);
 
   // ==============================================================
   // CURRENT FLOOR DATA
