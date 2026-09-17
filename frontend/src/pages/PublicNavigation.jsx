@@ -222,6 +222,9 @@ export default function PublicNavigation() {
 
   const mapViewportRef = useRef(null);
   const [mapScale, setMapScale] = useState(1);
+  const [mapOffsetX, setMapOffsetX] = useState(0);
+  const [mapOffsetY, setMapOffsetY] = useState(0);
+  const [mobileMapHeight, setMobileMapHeight] = useState(700);
 
   // ==============================================================
   // SIMULATION REFS
@@ -456,7 +459,87 @@ export default function PublicNavigation() {
   }, [waypoints, selectedFloor]);
 
   // ==============================================================
-  // RESPONSIVE MAP FIT — FINAL
+  // RESPONSIVE MAP FIT — CONTENT BOUNDS
+  // ==============================================================
+  // Desktop/laptop keeps the original 100% map size.
+  // Phones fit the actual rendered floor content, not just floorSize.
+  // This matters when rooms extend beyond the stored floor dimensions.
+  useEffect(() => {
+    const viewport = mapViewportRef.current;
+    if (!viewport) return;
+
+    const updateMapScale = () => {
+      const screenWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth);
+      const viewportWidth = Math.max(1, viewport.clientWidth);
+
+      if (screenWidth > 768) {
+        setMapScale(1);
+        setMapOffsetX(0);
+        setMapOffsetY(0);
+        setMobileMapHeight(floorSize.height);
+        return;
+      }
+
+      const items = [];
+
+      currentRooms.forEach((room) => {
+        const x = Number(room.x || 0);
+        const y = Number(room.y || 0);
+        const width = Number(room.width || 120);
+        const height = Number(room.height || 80);
+        items.push({ x1: x, y1: y, x2: x + width, y2: y + height });
+      });
+
+      currentWaypoints.forEach((wp) => {
+        const x = Number(wp.x || 0);
+        const y = Number(wp.y || 0);
+        items.push({ x1: x - 24, y1: y - 24, x2: x + 24, y2: y + 24 });
+      });
+
+      if (!items.length) {
+        setMapScale(0.85);
+        setMapOffsetX(0);
+        setMapOffsetY(0);
+        setMobileMapHeight(floorSize.height * 0.85);
+        return;
+      }
+
+      const padding = 12;
+      const minX = Math.min(...items.map((item) => item.x1)) - padding;
+      const maxX = Math.max(...items.map((item) => item.x2)) + padding;
+      const minY = Math.min(...items.map((item) => item.y1)) - padding;
+      const maxY = Math.max(...items.map((item) => item.y2)) + padding;
+
+      const contentWidth = Math.max(1, maxX - minX);
+      const scale = Math.min(1, (viewportWidth - 8) / contentWidth);
+
+      // Move the content bounds to the center of the phone viewport.
+      const scaledContentWidth = contentWidth * scale;
+      const offsetX = (viewportWidth - scaledContentWidth) / 2 - minX * scale;
+
+      const contentHeight = Math.max(1, maxY - minY);
+      const fittedHeight = Math.max(220, contentHeight * scale + padding * 2);
+
+      setMapScale(Number(Math.max(0.05, scale).toFixed(4)));
+      setMapOffsetX(Number(offsetX.toFixed(2)));
+      setMapOffsetY(Number((-minY * scale + padding).toFixed(2)));
+      setMobileMapHeight(Number(fittedHeight.toFixed(2)));
+    };
+
+    updateMapScale();
+
+    const observer = new ResizeObserver(updateMapScale);
+    observer.observe(viewport);
+    window.addEventListener("resize", updateMapScale);
+    window.addEventListener("orientationchange", updateMapScale);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateMapScale);
+      window.removeEventListener("orientationchange", updateMapScale);
+    };
+  }, [floorSize.width, currentRooms, currentWaypoints]);
+
   // ==============================================================
   // Desktop/laptop: keep the map at its original 100% size.
   // Phone: scale the complete floor surface to the actual map viewport width.
@@ -3804,9 +3887,9 @@ export default function PublicNavigation() {
             border:
               "1px solid #234579",
             minHeight:
-              floorSize.height * mapScale,
+              mobileMapHeight,
             height:
-              floorSize.height * mapScale,
+              mobileMapHeight,
             boxSizing:
               "border-box",
             transition:
@@ -3833,11 +3916,11 @@ export default function PublicNavigation() {
               background:
                 "#081936",
               overflow:
-                "hidden",
+                "visible",
               transform:
-                `scale(${mapScale})`,
+                `translate(${mapOffsetX}px, ${mapOffsetY}px) scale(${mapScale})`,
               transformOrigin:
-                "top center",
+                "top left",
               maxWidth:
                 "none",
               willChange:
