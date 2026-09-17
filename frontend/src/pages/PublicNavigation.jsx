@@ -479,7 +479,10 @@ export default function PublicNavigation() {
     if (!viewport) return;
 
     const updateMapScale = () => {
-      const availableWidth = viewport.clientWidth;
+      // Measure the real map card when available, but fall back to the
+      // viewport width so QR/mobile rendering never stays at desktop scale.
+      const availableWidth =
+        viewport.clientWidth || window.innerWidth;
       if (!availableWidth) return;
 
       // Small breathing room inside the phone screen.
@@ -2336,6 +2339,18 @@ export default function PublicNavigation() {
   // ==============================================================
   // ROUTE INSTRUCTIONS
   // ==============================================================
+  //
+  // Presentation-only navigation guidance.
+  // This does NOT change the calculated route, map data, or routing graph.
+  // It translates the already-calculated waypoint path into clearer
+  // human-readable instructions such as:
+  //   • Head straight
+  //   • Turn left / Turn right
+  //   • Bear left / Bear right
+  //   • Make a U-turn
+  //   • Take Stairs / Elevator
+  //   • Arrive at destination
+  //
 
   const instructions =
     useMemo(() => {
@@ -2375,12 +2390,14 @@ export default function PublicNavigation() {
         );
 
       result.push({
+        step: 1,
         icon: "🚀",
-        title: "Start",
-        text: `Start at ${
+        tone: "start",
+        title: "Start here",
+        text: `Begin at ${
           startRoom?.name ||
           "Current Location"
-        } (${first.floor})`
+        } on ${first.floor}`
       });
 
       for (
@@ -2416,17 +2433,17 @@ export default function PublicNavigation() {
               : "Stairs";
 
           result.push({
+            step: result.length + 1,
             icon:
               type ===
               "Elevator"
                 ? "🛗"
                 : "🪜",
-
+            tone: "floor",
             title:
               `Take ${type}`,
-
             text:
-              `Go from ${current.floor} to ${next.floor} via ${type}`
+              `Go from ${current.floor} to ${next.floor}`
           });
 
           continue;
@@ -2454,21 +2471,163 @@ export default function PublicNavigation() {
           );
 
         const distance =
-          matchingEdge?.customDistance ??
-          Math.hypot(
-            next.x -
-              current.x,
-            next.y -
-              current.y
-          ) *
-            PIXELS_TO_METERS;
+          Number(
+            matchingEdge?.customDistance ??
+              Math.hypot(
+                Number(next.x) -
+                  Number(current.x),
+                Number(next.y) -
+                  Number(current.y)
+              ) *
+                PIXELS_TO_METERS
+          );
+
+        const distanceText =
+          formatDistanceMeters(
+            distance
+          );
+
+        let title = "Continue straight";
+        let icon = "⬆️";
+        let tone = "walk";
+
+        // The first segment has no previous segment,
+        // so describe it as the initial direction.
+        if (i === 0) {
+          title = "Head straight";
+          icon = "⬆️";
+        } else {
+          const previous =
+            nodes[i - 1];
+
+          // After changing floors, start with a clean
+          // "continue on this floor" instruction rather
+          // than comparing directions across floors.
+          if (
+            previous.floor !==
+            current.floor
+          ) {
+            title = "Continue on this floor";
+            icon = "➡️";
+          } else {
+            const inX =
+              Number(current.x) -
+              Number(previous.x);
+
+            const inY =
+              Number(current.y) -
+              Number(previous.y);
+
+            const outX =
+              Number(next.x) -
+              Number(current.x);
+
+            const outY =
+              Number(next.y) -
+              Number(current.y);
+
+            const inLength =
+              Math.hypot(
+                inX,
+                inY
+              );
+
+            const outLength =
+              Math.hypot(
+                outX,
+                outY
+              );
+
+            if (
+              inLength > 0 &&
+              outLength > 0
+            ) {
+              const dot =
+                (
+                  inX * outX +
+                  inY * outY
+                ) /
+                (
+                  inLength *
+                  outLength
+                );
+
+              const cross =
+                inX * outY -
+                inY * outX;
+
+              const safeDot =
+                Math.max(
+                  -1,
+                  Math.min(
+                    1,
+                    dot
+                  )
+                );
+
+              const angle =
+                Math.atan2(
+                  cross,
+                  safeDot
+                ) *
+                (180 / Math.PI);
+
+              const absoluteAngle =
+                Math.abs(angle);
+
+              // Map coordinates use screen Y (downwards),
+              // so a positive cross-product represents a
+              // visual right turn.
+              if (
+                absoluteAngle >=
+                150
+              ) {
+                title = "Make a U-turn";
+                icon = "↩️";
+                tone = "turn";
+              } else if (
+                absoluteAngle >=
+                35
+              ) {
+                if (
+                  angle > 0
+                ) {
+                  title = "Turn right";
+                  icon = "↪️";
+                } else {
+                  title = "Turn left";
+                  icon = "↩️";
+                }
+                tone = "turn";
+              } else if (
+                absoluteAngle >=
+                15
+              ) {
+                if (
+                  angle > 0
+                ) {
+                  title = "Bear right";
+                  icon = "↗️";
+                } else {
+                  title = "Bear left";
+                  icon = "↖️";
+                }
+                tone = "turn";
+              } else {
+                title = "Continue straight";
+                icon = "⬆️";
+              }
+            }
+          }
+        }
 
         result.push({
-          icon: "🚶",
-          title: "Walk",
-          text: `Walk ${formatDistanceMeters(
-            distance
-          )}`
+          step: result.length + 1,
+          icon,
+          tone,
+          title,
+          text:
+            `Continue for ${distanceText}`
         });
       }
 
@@ -2483,12 +2642,14 @@ export default function PublicNavigation() {
         );
 
       result.push({
+        step: result.length + 1,
         icon: "🏁",
-        title: "Destination",
-        text: `Arrive at ${
+        tone: "destination",
+        title: "You have arrived",
+        text: `Destination: ${
           destination?.name ||
           "Destination"
-        } (${last.floor})`
+        } · ${last.floor}`
       });
 
       return result;
@@ -3063,60 +3224,158 @@ export default function PublicNavigation() {
             {instructions.length >
               0 && (
               <div
+                className="route-instructions"
                 style={{
-                  marginTop: 18
+                  marginTop: 20
                 }}
               >
-                <h4>
-                  🧭 Directions
-                </h4>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    marginBottom: 10
+                  }}
+                >
+                  <h4
+                    style={{
+                      margin: 0
+                    }}
+                  >
+                    🧭 Step-by-step directions
+                  </h4>
 
-                {instructions.map(
-                  (
-                    instruction,
-                    index
-                  ) => (
-                    <div
-                      key={
-                        index
-                      }
-                      style={{
-                        display:
-                          "flex",
-                        gap: 10,
-                        padding:
-                          "9px 0",
-                        borderBottom:
-                          "1px solid rgba(255,255,255,.08)"
-                      }}
-                    >
-                      <span>
-                        {
-                          instruction.icon
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      opacity: 0.65
+                    }}
+                  >
+                    {instructions.length - 1} steps
+                  </span>
+                </div>
+
+                <div
+                  className="route-instruction-list"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8
+                  }}
+                >
+                  {instructions.map(
+                    (
+                      instruction,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          index
                         }
-                      </span>
-
-                      <div>
-                        <strong>
+                        className={`route-instruction-item route-instruction-${instruction.tone || "walk"}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          padding: "12px 13px",
+                          borderRadius: 14,
+                          background:
+                            "rgba(255,255,255,.72)",
+                          border:
+                            "1px solid rgba(148,163,184,.28)",
+                          boxShadow:
+                            "0 5px 14px rgba(15,23,42,.045)"
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 34,
+                            minWidth: 34,
+                            height: 34,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background:
+                              instruction.tone === "destination"
+                                ? "#dcfce7"
+                                : instruction.tone === "floor"
+                                ? "#ede9fe"
+                                : instruction.tone === "turn"
+                                ? "#dbeafe"
+                                : instruction.tone === "start"
+                                ? "#cffafe"
+                                : "#f1f5f9",
+                            color: "#0f172a",
+                            fontSize: 17,
+                            fontWeight: 800,
+                            flexShrink: 0
+                          }}
+                          aria-hidden="true"
+                        >
                           {
-                            instruction.title
+                            instruction.icon
                           }
-                        </strong>
+                        </div>
 
                         <div
                           style={{
-                            opacity:
-                              0.75
+                            minWidth: 0,
+                            flex: 1
                           }}
                         >
-                          {
-                            instruction.text
-                          }
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 7,
+                              flexWrap: "wrap"
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 800,
+                                color: "#64748b",
+                                letterSpacing: ".04em"
+                              }}
+                            >
+                              STEP {instruction.step}
+                            </span>
+
+                            <strong
+                              style={{
+                                color: "#0f172a",
+                                fontSize: 14,
+                                lineHeight: 1.25
+                              }}
+                            >
+                              {
+                                instruction.title
+                              }
+                            </strong>
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: 4,
+                              color: "#475569",
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              fontWeight: 550
+                            }}
+                          >
+                            {
+                              instruction.text
+                            }
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                )}
+                    )
+                  )}
+                </div>
               </div>
             )}
 
@@ -3555,6 +3814,7 @@ export default function PublicNavigation() {
 
         <div
           ref={mapViewportRef}
+          className="map-viewport"
           style={{
             width:
               "100%",
@@ -3582,7 +3842,7 @@ export default function PublicNavigation() {
               position:
                 "absolute",
               left:
-                "50%",
+                `calc(50% - ${(floorSize.width * mapScale) / 2}px)`,
               top:
                 0,
               width:
@@ -3598,9 +3858,9 @@ export default function PublicNavigation() {
               overflow:
                 "hidden",
               transform:
-                `translateX(-50%) scale(${mapScale})`,
+                `scale(${mapScale})`,
               transformOrigin:
-                "top center"
+                "top left"
             }}
           >
             {/* ==================================================
@@ -4725,6 +4985,51 @@ export default function PublicNavigation() {
         .route-options {
           gap: 9px !important;
         }
+
+        .route-instructions {
+          color: #0f172a;
+        }
+
+        .route-instruction-item {
+          transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        }
+
+        .route-instruction-item:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 9px 20px rgba(15,23,42,.08) !important;
+          border-color: #bfdbfe !important;
+        }
+
+        .route-instruction-turn {
+          background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%) !important;
+        }
+
+        .route-instruction-floor {
+          background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%) !important;
+        }
+
+        .route-instruction-destination {
+          background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%) !important;
+        }
+
+        @media (max-width: 767px) {
+          .route-instruction-item {
+            padding: 11px !important;
+            gap: 10px !important;
+          }
+
+          .route-instruction-item > div:first-child {
+            width: 32px !important;
+            min-width: 32px !important;
+            height: 32px !important;
+            font-size: 16px !important;
+          }
+
+          .route-instruction-item strong {
+            font-size: 13px !important;
+          }
+        }
+
 
         .route-options button {
           border-color: #bfdbfe !important;
