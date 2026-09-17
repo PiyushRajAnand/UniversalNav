@@ -49,8 +49,9 @@ import { useParams } from "react-router-dom";
 // In production, set VITE_API_URL in the frontend deployment
 // (for example: https://your-backend.onrender.com).
 const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? "http://localhost:5000" : "")
+  import.meta.env.DEV
+    ? "http://localhost:5000"
+    : (import.meta.env.VITE_API_URL || "")
 ).replace(/\/$/, "");
 
 const PIXELS_TO_METERS = 0.1;
@@ -3119,6 +3120,9 @@ export default function PublicNavigation() {
               </div>
             )}
 
+          </div>
+        )}
+
       {/* ========================================================
           EMERGENCY CENTER
       ======================================================== */}
@@ -4401,8 +4405,6 @@ export default function PublicNavigation() {
                 </div>
               </div>
             )}
-          </div>
-        )}
       </div>
 
 
