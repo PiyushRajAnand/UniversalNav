@@ -454,52 +454,25 @@ export default function PublicNavigation() {
     );
   }, [waypoints, selectedFloor]);
 
-  // Visible content bounds are used only for presentation. All room,
-  // waypoint and routing coordinates remain unchanged.
-  const mapContentBounds = useMemo(() => {
-    const items = [
-      ...currentRooms.map((room) => ({
-        x: Number(room.x) || 0,
-        y: Number(room.y) || 0,
-        width: Number(room.width) || 120,
-        height: Number(room.height) || 80
-      })),
-      ...currentWaypoints.map((wp) => ({
-        x: Number(wp.x) || 0,
-        y: Number(wp.y) || 0,
-        width: 0,
-        height: 0
-      }))
-    ];
+  // IMPORTANT:
+  // The map is drawn in the original floor coordinate system.
+  // For mobile presentation we fit the ENTIRE floor surface,
+  // not only the room/content bounds. This prevents the right side
+  // of a QR/public map from being cut off while preserving every
+  // original room, waypoint and routing coordinate.
+  const mapContentBounds = useMemo(
+    () => ({
+      minX: 0,
+      minY: 0,
+      width: Math.max(Number(floorSize.width) || 1, 1),
+      height: Math.max(Number(floorSize.height) || 1, 1)
+    }),
+    [floorSize.width, floorSize.height]
+  );
 
-    if (items.length === 0) {
-      return {
-        minX: 0,
-        minY: 0,
-        width: floorSize.width,
-        height: floorSize.height
-      };
-    }
-
-    const minX = Math.min(...items.map((item) => item.x));
-    const minY = Math.min(...items.map((item) => item.y));
-    const maxX = Math.max(
-      ...items.map((item) => item.x + item.width)
-    );
-    const maxY = Math.max(
-      ...items.map((item) => item.y + item.height)
-    );
-
-    return {
-      minX,
-      minY,
-      width: Math.max(maxX - minX, 1),
-      height: Math.max(maxY - minY, 1)
-    };
-  }, [currentRooms, currentWaypoints, floorSize.width, floorSize.height]);
-
-  // Keep the public map fully visible on phones while preserving
-  // the original coordinate system used by the navigation engine.
+  // Keep the complete public map visible on phones.
+  // Only the visual scale changes; the underlying map coordinates
+  // and all navigation/simulation logic remain untouched.
   useEffect(() => {
     const viewport = mapViewportRef.current;
     if (!viewport) return;
@@ -508,17 +481,25 @@ export default function PublicNavigation() {
       const availableWidth = viewport.clientWidth;
       if (!availableWidth) return;
 
-      const padding = window.innerWidth <= 767 ? 22 : 30;
-      const nextScale = Math.min(
+      // Small breathing room inside the phone screen.
+      const horizontalPadding =
+        window.innerWidth <= 430 ? 16 : 22;
+
+      const usableWidth = Math.max(
         1,
-        Math.max(
-          0.25,
-          (availableWidth - padding * 2) /
-            mapContentBounds.width
-        )
+        availableWidth - horizontalPadding * 2
       );
 
-      setMapScale(Number(nextScale.toFixed(4)));
+      const nextScale = Math.min(
+        1,
+        usableWidth / mapContentBounds.width
+      );
+
+      setMapScale(
+        Number(
+          Math.max(0.05, nextScale).toFixed(4)
+        )
+      );
     };
 
     updateMapScale();
@@ -526,10 +507,15 @@ export default function PublicNavigation() {
     const observer = new ResizeObserver(updateMapScale);
     observer.observe(viewport);
     window.addEventListener("resize", updateMapScale);
+    window.addEventListener("orientationchange", updateMapScale);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updateMapScale);
+      window.removeEventListener(
+        "orientationchange",
+        updateMapScale
+      );
     };
   }, [mapContentBounds]);
 
@@ -3133,183 +3119,6 @@ export default function PublicNavigation() {
               </div>
             )}
 
-            {/* SIMULATION */}
-
-            {navigationPath.length >
-              1 && (
-              <div
-                className="simulation-card"
-                style={{
-                  marginTop: 14,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  background: "rgba(8,25,54,.7)",
-                  border:
-                    "1px solid rgba(71,85,105,.65)"
-                }}
-              >
-                <div
-                  className="simulation-controls"
-                  style={{
-                    display:
-                      "flex",
-                    gap: 10,
-                    alignItems:
-                      "center",
-                    flexWrap:
-                      "wrap"
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      if (
-                        simulationProgress >=
-                        1
-                      ) {
-                        setSimulationProgress(
-                          0
-                        );
-                      }
-
-                      setIsSimulating(
-                        (prev) =>
-                          !prev
-                      );
-                    }}
-                    style={{
-                      padding:
-                        "7px 11px",
-                      borderRadius:
-                        8,
-                      border:
-                        "none",
-                      background:
-                        "#22c55e",
-                      color:
-                        "white",
-                      fontWeight:
-                        "bold"
-                    }}
-                  >
-                    {isSimulating
-                      ? "⏸ Pause"
-                      : simulationProgress >=
-                        1
-                      ? "🔄 Replay"
-                      : "▶ Simulate Route"}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsSimulating(
-                        false
-                      );
-
-                      setSimulationProgress(
-                        0
-                      );
-                    }}
-                    style={{
-                      padding:
-                        "7px 11px",
-                      borderRadius:
-                        8,
-                      border:
-                        "1px solid #64748b",
-                      background:
-                        "#172b55",
-                      color:
-                        "white"
-                    }}
-                  >
-                    ⏹ Reset
-                  </button>
-
-                  <select
-                    value={
-                      simSpeed
-                    }
-                    onChange={(e) =>
-                      setSimSpeed(
-                        Number(
-                          e.target.value
-                        )
-                      )
-                    }
-                    style={{
-                      padding:
-                        "6px 8px",
-                      borderRadius:
-                        7,
-                      background:
-                        "#172b55",
-                      color:
-                        "white"
-                    }}
-                  >
-                    <option value="0.5">
-                      0.5x
-                    </option>
-
-                    <option value="1">
-                      1x
-                    </option>
-
-                    <option value="2">
-                      2x
-                    </option>
-
-                    <option value="4">
-                      4x
-                    </option>
-                  </select>
-                </div>
-
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.005"
-                  value={
-                    simulationProgress
-                  }
-                  onChange={(e) => {
-                    setIsSimulating(
-                      false
-                    );
-
-                    setSimulationProgress(
-                      Number(
-                        e.target.value
-                      )
-                    );
-                  }}
-                  style={{
-                    width:
-                      "100%",
-                    marginTop: 12
-                  }}
-                />
-
-                <div
-                  style={{
-                    fontSize: 13,
-                    opacity: 0.7
-                  }}
-                >
-                  Simulation:{" "}
-                  {Math.round(
-                    simulationProgress *
-                      100
-                  )}
-                  %
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* ========================================================
           EMERGENCY CENTER
       ======================================================== */}
@@ -3369,6 +3178,89 @@ export default function PublicNavigation() {
               ACTIVE
             </span>
           )}
+        </div>
+
+        {/* ======================================================
+            CURRENT LOCATION FOR EMERGENCY
+            This intentionally uses the same startRoomId state as
+            normal routing, so emergency mode always starts from
+            the location selected by the user.
+        ====================================================== */}
+
+        <div
+          className="emergency-current-location"
+          style={{
+            marginTop: 16,
+            padding: 14,
+            borderRadius: 12,
+            background: "#ffffff",
+            border: "1px solid #fecaca",
+            color: "#0f172a"
+          }}
+        >
+          <label
+            htmlFor="emergency-current-location"
+            style={{
+              display: "block",
+              fontWeight: 750,
+              marginBottom: 7,
+              color: "#334155"
+            }}
+          >
+            📍 Where are you now?
+          </label>
+
+          <select
+            id="emergency-current-location"
+            value={startRoomId}
+            onChange={(e) => {
+              const roomId = e.target.value;
+              setStartRoomId(roomId);
+
+              const selectedRoom = rooms.find(
+                (room) =>
+                  String(room._id) === String(roomId)
+              );
+
+              setCurrentLocationNodeId(
+                selectedRoom?.waypointId || ""
+              );
+            }}
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              borderRadius: 10,
+              background: "#ffffff",
+              color: "#0f172a",
+              border: "1px solid #fca5a5",
+              fontWeight: 650
+            }}
+          >
+            <option value="">
+              Select your current room
+            </option>
+
+            {rooms.map((room) => (
+              <option
+                key={`emergency-location-${room._id}`}
+                value={room._id}
+              >
+                {getRoomIcon(room)}{" "}
+                {room.name || "Unnamed"} —{" "}
+                {room.floor || "1st FLOOR"}
+              </option>
+            ))}
+          </select>
+
+          <div
+            style={{
+              marginTop: 7,
+              fontSize: 12,
+              color: "#64748b"
+            }}
+          >
+            Emergency routing will start from this location.
+          </div>
         </div>
 
         <div
@@ -3664,6 +3556,8 @@ export default function PublicNavigation() {
               "100%",
             overflow:
               "hidden",
+            position:
+              "relative",
             background:
               "#081936",
             borderRadius:
@@ -3682,7 +3576,11 @@ export default function PublicNavigation() {
             className="map-surface"
             style={{
               position:
-                "relative",
+                "absolute",
+              left:
+                "50%",
+              top:
+                0,
               width:
                 floorSize.width,
               height:
@@ -3696,9 +3594,9 @@ export default function PublicNavigation() {
               overflow:
                 "hidden",
               transform:
-                `scale(${mapScale})`,
+                `translateX(-50%) scale(${mapScale})`,
               transformOrigin:
-                "top left"
+                "top center"
             }}
           >
             {/* ==================================================
@@ -4325,6 +4223,188 @@ export default function PublicNavigation() {
           </div>
         </div>
       </div>
+
+      {/* ========================================================
+          ROUTE SIMULATION BELOW MAP
+          ======================================================== */}
+
+            {/* SIMULATION */}
+
+            {navigationPath.length >
+              1 && (
+              <div
+                className="simulation-card"
+                style={{
+                  marginTop: 14,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "rgba(8,25,54,.7)",
+                  border:
+                    "1px solid rgba(71,85,105,.65)"
+                }}
+              >
+                <div
+                  className="simulation-controls"
+                  style={{
+                    display:
+                      "flex",
+                    gap: 10,
+                    alignItems:
+                      "center",
+                    flexWrap:
+                      "wrap"
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      if (
+                        simulationProgress >=
+                        1
+                      ) {
+                        setSimulationProgress(
+                          0
+                        );
+                      }
+
+                      setIsSimulating(
+                        (prev) =>
+                          !prev
+                      );
+                    }}
+                    style={{
+                      padding:
+                        "7px 11px",
+                      borderRadius:
+                        8,
+                      border:
+                        "none",
+                      background:
+                        "#22c55e",
+                      color:
+                        "white",
+                      fontWeight:
+                        "bold"
+                    }}
+                  >
+                    {isSimulating
+                      ? "⏸ Pause"
+                      : simulationProgress >=
+                        1
+                      ? "🔄 Replay"
+                      : "▶ Simulate Route"}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsSimulating(
+                        false
+                      );
+
+                      setSimulationProgress(
+                        0
+                      );
+                    }}
+                    style={{
+                      padding:
+                        "7px 11px",
+                      borderRadius:
+                        8,
+                      border:
+                        "1px solid #64748b",
+                      background:
+                        "#172b55",
+                      color:
+                        "white"
+                    }}
+                  >
+                    ⏹ Reset
+                  </button>
+
+                  <select
+                    value={
+                      simSpeed
+                    }
+                    onChange={(e) =>
+                      setSimSpeed(
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                    style={{
+                      padding:
+                        "6px 8px",
+                      borderRadius:
+                        7,
+                      background:
+                        "#172b55",
+                      color:
+                        "white"
+                    }}
+                  >
+                    <option value="0.5">
+                      0.5x
+                    </option>
+
+                    <option value="1">
+                      1x
+                    </option>
+
+                    <option value="2">
+                      2x
+                    </option>
+
+                    <option value="4">
+                      4x
+                    </option>
+                  </select>
+                </div>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.005"
+                  value={
+                    simulationProgress
+                  }
+                  onChange={(e) => {
+                    setIsSimulating(
+                      false
+                    );
+
+                    setSimulationProgress(
+                      Number(
+                        e.target.value
+                      )
+                    );
+                  }}
+                  style={{
+                    width:
+                      "100%",
+                    marginTop: 12
+                  }}
+                />
+
+                <div
+                  style={{
+                    fontSize: 13,
+                    opacity: 0.7
+                  }}
+                >
+                  Simulation:{" "}
+                  {Math.round(
+                    simulationProgress *
+                      100
+                  )}
+                  %
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
 
       {/* ========================================================
           BLOCKED PATH LEGEND
