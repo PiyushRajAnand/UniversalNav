@@ -455,55 +455,33 @@ export default function PublicNavigation() {
     );
   }, [waypoints, selectedFloor]);
 
-  // IMPORTANT:
-  // The map is drawn in the original floor coordinate system.
-  // For mobile presentation we fit the ENTIRE floor surface,
-  // not only the room/content bounds. This prevents the right side
-  // of a QR/public map from being cut off while preserving every
-  // original room, waypoint and routing coordinate.
-  const mapContentBounds = useMemo(
-    () => ({
-      minX: 0,
-      minY: 0,
-      width: Math.max(Number(floorSize.width) || 1, 1),
-      height: Math.max(Number(floorSize.height) || 1, 1)
-    }),
-    [floorSize.width, floorSize.height]
-  );
-
-  // Keep the complete public map visible on phones.
-  // Only the visual scale changes; the underlying map coordinates
-  // and all navigation/simulation logic remain untouched.
+  // ==============================================================
+  // RESPONSIVE MAP FIT — FINAL
+  // ==============================================================
+  // Desktop/laptop: keep the map at its original 100% size.
+  // Phone: scale the complete floor surface to the actual map viewport width.
+  // Nothing in the map data, routing, emergency logic or simulation is changed.
   useEffect(() => {
     const viewport = mapViewportRef.current;
     if (!viewport) return;
 
     const updateMapScale = () => {
-      // Measure the real map card when available, but fall back to the
-      // viewport width so QR/mobile rendering never stays at desktop scale.
-      const availableWidth =
-        viewport.clientWidth || window.innerWidth;
-      if (!availableWidth) return;
+      const screenWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth);
+      const viewportWidth = Math.max(1, viewport.clientWidth);
 
-      // Small breathing room inside the phone screen.
-      const horizontalPadding =
-        window.innerWidth <= 430 ? 16 : 22;
+      // IMPORTANT: never apply the phone scale on laptop/desktop.
+      if (screenWidth > 768) {
+        setMapScale(1);
+        return;
+      }
 
-      const usableWidth = Math.max(
-        1,
-        availableWidth - horizontalPadding * 2
-      );
+      // Phone: the map surface starts at x=0 and is scaled uniformly.
+      // This guarantees that its complete original width fits inside the
+      // actual map viewport instead of being centered and clipped.
+      const usableWidth = Math.max(1, viewportWidth - 8);
+      const scale = Math.min(1, usableWidth / Math.max(1, floorSize.width));
 
-      const nextScale = Math.min(
-        1,
-        usableWidth / mapContentBounds.width
-      );
-
-      setMapScale(
-        Number(
-          Math.max(0.05, nextScale).toFixed(4)
-        )
-      );
+      setMapScale(Number(Math.max(0.05, scale).toFixed(4)));
     };
 
     updateMapScale();
@@ -516,12 +494,9 @@ export default function PublicNavigation() {
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updateMapScale);
-      window.removeEventListener(
-        "orientationchange",
-        updateMapScale
-      );
+      window.removeEventListener("orientationchange", updateMapScale);
     };
-  }, [mapContentBounds]);
+  }, [floorSize.width]);
 
   // ==============================================================
   // EDGE KEY
@@ -3832,6 +3807,8 @@ export default function PublicNavigation() {
               floorSize.height * mapScale,
             height:
               floorSize.height * mapScale,
+            boxSizing:
+              "border-box",
             transition:
               "height .2s ease"
           }}
@@ -3842,7 +3819,7 @@ export default function PublicNavigation() {
               position:
                 "absolute",
               left:
-                `calc(50% - ${(floorSize.width * mapScale) / 2}px)`,
+                0,
               top:
                 0,
               width:
@@ -3860,7 +3837,11 @@ export default function PublicNavigation() {
               transform:
                 `scale(${mapScale})`,
               transformOrigin:
-                "top left"
+                "top center",
+              maxWidth:
+                "none",
+              willChange:
+                "transform"
             }}
           >
             {/* ==================================================
@@ -5333,7 +5314,19 @@ export default function PublicNavigation() {
           }
 
           .map-viewport {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
             border-radius: 13px !important;
+          }
+
+          /* The floor is a fixed-coordinate drawing. On phones the React
+             inline scale fits its ENTIRE width inside the viewport. Never
+             allow horizontal scrolling or desktop-size overflow. */
+          .map-viewport .map-surface {
+            max-width: none !important;
+            margin: 0 !important;
           }
 
           .public-stats-grid {
